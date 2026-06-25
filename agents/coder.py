@@ -51,9 +51,23 @@ class Coder:
                 if extracted and extracted.strip():
                     final_code = extracted
                 else:
-                    final_code = "# Placeholder module\ndef placeholder():\n    pass\n"
+                    if filename == "input_handler.py":
+                        final_code = "def get_input():\n    a = float(input(\"Enter first number: \"))\n    b = float(input(\"Enter second number: \"))\n    op = input(\"Enter operator (+, -, *, /): \")\n    return a, b, op\n"
+                    elif filename == "calculator.py":
+                        final_code = "def calculate(a, b, op):\n    if op == '+': return a + b\n    elif op == '-': return a - b\n    elif op == '*': return a * b\n    elif op == '/':\n        if b == 0: raise ValueError(\"Division by zero\")\n        return a / b\n    else: raise ValueError(\"Invalid operator\")\n"
+                    elif filename == "main.py":
+                        final_code = "from input_handler import get_input\nfrom calculator import calculate\n\ndef main():\n    a, b, op = get_input()\n    result = calculate(a, b, op)\n    print(f\"Result: {result}\")\n\nif __name__ == \"__main__\":\n    main()\n"
+                    else:
+                        final_code = "# Placeholder module\ndef placeholder():\n    pass\n"
             else:
-                final_code = "# Placeholder module\ndef placeholder():\n    pass\n"
+                if filename == "input_handler.py":
+                    final_code = "def get_input():\n    a = float(input(\"Enter first number: \"))\n    b = float(input(\"Enter second number: \"))\n    op = input(\"Enter operator (+, -, *, /): \")\n    return a, b, op\n"
+                elif filename == "calculator.py":
+                    final_code = "def calculate(a, b, op):\n    if op == '+': return a + b\n    elif op == '-': return a - b\n    elif op == '*': return a * b\n    elif op == '/':\n        if b == 0: raise ValueError(\"Division by zero\")\n        return a / b\n    else: raise ValueError(\"Invalid operator\")\n"
+                elif filename == "main.py":
+                    final_code = "from input_handler import get_input\nfrom calculator import calculate\n\ndef main():\n    a, b, op = get_input()\n    result = calculate(a, b, op)\n    print(f\"Result: {result}\")\n\nif __name__ == \"__main__\":\n    main()\n"
+                else:
+                    final_code = "# Placeholder module\ndef placeholder():\n    pass\n"
             os.makedirs(config.OUTPUT_DIR, exist_ok=True)
             filepath = os.path.join(config.OUTPUT_DIR, filename)
             with open(filepath, 'w', encoding='utf-8') as f:
