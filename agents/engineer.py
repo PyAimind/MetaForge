@@ -57,7 +57,7 @@ class Engineer:
         if not isinstance(module_info, dict):
             return self._error_response(phase, "Missing or invalid 'module_info'")
         prompt = generate_prompt(module_info)
-        return self._success_response(phase, {"prompt": prompt})
+        return self._success_response(phase, {"prompts": {"fixed_module.py": prompt}})
 
     def process_command(self, message: Message) -> Message:
         if message.msg_type != "CommandMsg":
