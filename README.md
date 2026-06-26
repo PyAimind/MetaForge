@@ -155,6 +155,35 @@ MetaForge shows that with structured prompt engineering and well-defined agent r
 
 ---
 
+## Development Process
+
+MetaForge was developed using a strict **phased and incremental methodology** with heavy emphasis on testing at every step. The project was built in clearly defined phases, and each major component was implemented, tested, and committed separately.
+
+### Key Development Principles
+- Phase-based development (Workspace → Communication → Agents → Orchestration)
+- Accumulative testing (new modules are always tested together with previous ones)
+- Muscular Prompt Engineering methodology applied consistently
+- Clean separation of concerns between agents
+- Professional git workflow using Conventional Commits
+
+### Commit History Overview
+
+| Phase       | Focus                              | Highlights |
+|-------------|------------------------------------|----------|
+| **0–1**     | Project Setup & Workspace          | Config, WorkspaceManager, JSON state handling |
+| **2**       | Communication Layer                | Message dataclass + Queue-based MessageChannel |
+| **3**       | Coder Agent                        | Simulated code generation + integration tests |
+| **4**       | Tester Agent                       | Secure subprocess execution, path validation, timeout handling |
+| **5**       | Engineer + Prompt Engineering      | Structure designer + Muscular prompt generator |
+| **6**       | Supervisor & Main Loop             | State machine orchestrator + full workflow + error recovery |
+| **Final**   | Documentation & Polish             | README, LICENSE, TECHNICAL.md, sample output project |
+
+**Total:** 30+ commits with Conventional Commit messages.
+
+This disciplined development process is the same methodology that MetaForge itself automates.
+
+---
+
 ## 📜 License & Usage Notice
 
 This project is released under the **MIT License**.
