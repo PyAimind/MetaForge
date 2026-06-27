@@ -1,201 +1,162 @@
 # MetaForge
 
-**A multi-agent AI system that autonomously designs, builds, and tests complete Python projects.**
+**A self-organizing multi-agent system that autonomously designs, codes, and tests complete Python projects** — powered by a custom Muscular Prompt Engineering methodology.
 
-MetaForge is a multi-agent AI system that can take a high-level project idea and independently design its architecture, generate code, test it, and fix errors — all with minimal human intervention. It is powered by a custom **Muscular Prompt Engineering Methodology**.
+MetaForge simulates a real engineering team using four specialized agents that collaborate through structured message passing to turn a high-level idea into a fully working, tested Python application.
 
 ---
 
-## 🚀 Demo
+## 🚀 Live Demo
 
-Running `main.py` with a project idea causes MetaForge to autonomously build a working Python project.
+MetaForge successfully designed, coded, and tested a simple calculator project from scratch:
 
-For example, giving it the idea **"Simple Calculator"** results in multiple Python files that form a fully functional calculator.
-
-```bash
-python main.py
+```
+output/
+├── main.py
+├── input_handler.py
+└── calculator.py
 ```
 
-After execution, generated files will be available in the output directory.
+Run `main.py` inside the `output/` folder to see the working calculator.
 
 ---
 
-## 🎯 Motivation
+## Why MetaForge?
 
-Most developers use AI to write small pieces of code. However, building a complete, well-structured, and tested project still requires significant manual effort and coordination.
+Most people use AI tools to generate isolated code snippets.  
+MetaForge goes further: it creates an **entire software project** — including structure design, code generation, testing, and error recovery — using a disciplined, repeatable process.
 
-MetaForge explores a different question:  
-**What if multiple specialized AI agents could work together like a real software development team?**
-
----
-
-## 🏗️ Architecture
-
-MetaForge consists of four specialized agents that communicate through a message channel and share state via a workspace:
-
-| Agent        | Role                        | Responsibility                                      |
-|--------------|-----------------------------|-----------------------------------------------------|
-| **Supervisor** | Project Coordinator         | Manages workflow, state, and coordinates other agents |
-| **Engineer**   | Prompt Engineer & Architect | Designs project structure and creates high-quality prompts |
-| **Coder**      | Code Generator              | Writes actual Python code based on received prompts   |
-| **Tester**     | Quality Assurance           | Tests the generated code and reports results          |
+This project was built to explore whether a multi-agent system can replicate a real software engineering workflow with high reliability and traceability.
 
 ---
 
+## Key Features
 
-## 🛠️ Tech Stack
-
-- **Language**: Python
-- **Communication**: Custom queue-based MessageChannel
-- **State Management**: File-based WorkspaceManager
-- **Prompt Engineering**: Custom Muscular Prompt Methodology
-- **Architecture**: Multi-agent system with clear role separation
-
+- **Zero external dependencies** — Built entirely with Python standard library
+- **Phased & incremental development** with accumulative testing
+- **Secure code execution** with timeout protection and path validation
+- **Stateful orchestration** using a central Supervisor agent
+- **Muscular Prompt Engineering** methodology for consistent, high-quality outputs
+- Clean Conventional Commits and professional project structure
 
 ---
+
+## Architecture
+
+MetaForge consists of four specialized agents that communicate through a queue-based message channel:
+
+| Agent       | Role                                      | Responsibility |
+|-------------|-------------------------------------------|----------------|
+| **Supervisor**  | Central orchestrator (State Machine)     | Manages the full workflow and coordinates all agents |
+| **Engineer**    | Project architect & prompt engineer      | Breaks down the idea into phases and generates precise prompts |
+| **Coder**       | Code generator                           | Writes clean, functional code based on Engineer prompts |
+| **Tester**      | Quality assurance                        | Executes code securely, validates results, and reports issues |
 
 ### Workflow
 
 ```mermaid
-graph TD
-    A[Supervisor] -->|design_structure| B[Engineer]
-    B -->|generate_prompts| A
-    A -->|code| C[Coder]
-    C -->|test| D[Tester]
-    D -->|passed / failed| A
-    A -->|fix if needed| B
+flowchart TD
+    A[User Idea] --> B[Supervisor]
+    B --> C[Engineer: Design Structure]
+    C --> D[Engineer: Generate Prompts]
+    D --> E[Coder: Write Code]
+    E --> F[Tester: Execute & Validate]
+    F -->|Pass| G[Success - Output Project]
+    F -->|Fail| H[Supervisor: Request Fix]
+    H --> C
 ```
-
-The system follows an iterative process: Design → Prompt Generation → Coding → Testing → Fixing (if needed).
-
----
-
-## 🧠 Methodology
-
-MetaForge is built on a custom **Muscular Prompt Engineering Methodology** that was developed and validated through real project development. 
-
-This methodology focuses on writing highly precise, contract-style prompts that minimize ambiguity and hallucination. It emphasizes incremental development, accumulative testing, and strict constraints on code structure and library usage. This approach allows multiple AI agents to collaborate reliably without direct human intervention in every step.
-
----
-
-## ✨ Key Features
-
-- Autonomous end-to-end project building
-- Stateful coordination between agents
-- Automatic error recovery through prompt fixing
-- Clean modular architecture using message passing
-- Generates real, runnable Python code
-
----
-
-## ▶️ How to Run
-
-```bash
-git clone https://github.com/pyaimind/MetaForge.git
-cd MetaForge
-python main.py
-Note: The project idea is currently hardcoded inside main.py. You can change the idea string to generate different types of projects.
-
----
-
-## Project Structure
-MetaForge/
-├── main.py                      # Main entry point of the system
-├── agents/
-│   ├── supervisor.py            # Central orchestrator (State Machine)
-│   ├── engineer.py              # Designs project structure and generates muscular prompts
-│   ├── coder.py                 # Writes code based on the generated prompts
-│   └── tester.py                # Executes code and validates results
-├── communication/
-│   ├── message.py               # Immutable Message dataclass
-│   └── message_channel.py       # Queue-based message passing system
-├── workspace/
-│   └── workspace_manager.py     # Manages JSON state files (logs, test results, current phase)
-├── project_design/
-│   ├── structure_designer.py    # Breaks down the idea into phases and modules
-│   └── prompt_generator.py      # Generates precise muscular prompts for the Coder
-├── output/                      # Auto-generated projects by the system
-│   ├── calculator.py
-│   ├── input_handler.py
-│   └── main.py
-└── tests/                       # Unit and integration tests for all modules
-**Short Explanation:**
-
-The `output/` folder contains the final working projects that MetaForge automatically designs, codes, and tests. Currently, it includes a simple calculator example as a proof of concept.
-
----
-
-## 🧩 Challenges & Learnings
-
-Developing MetaForge involved several key technical challenges:
-
-- Designing a clean and maintainable state machine for the Supervisor
-- Managing communication and shared state between independent agents
-- Creating precise prompts that reduce hallucinations while remaining effective
-- Implementing reliable error recovery between Coder, Tester, and Engineer
-- Balancing agent autonomy with overall system control
-
-These challenges led to a more robust architecture and a deeper understanding of multi-agent system design.
-
----
-
-## 🔮 Future Improvements
-
-- Integration with real LLM APIs (e.g. DeepSeek, Claude, GPT)
-- Advanced error analysis and autonomous self-correction
-- Support for larger and more complex projects
-- Prompt optimization through feedback loops
-- External tool and library integration
-
----
-
-## 📌 Conclusion
-
-MetaForge shows that with structured prompt engineering and well-defined agent roles, multiple AI agents can collaborate to build real software projects. It represents a meaningful step toward more autonomous AI-assisted software development.
 
 ---
 
 ## Development Process
 
-MetaForge was developed using a strict **phased and incremental methodology** with heavy emphasis on testing at every step. The project was built in clearly defined phases, and each major component was implemented, tested, and committed separately.
+MetaForge was developed using a strict **phased, incremental, and test-driven methodology**. Every major component was built, tested, and committed separately to ensure high quality and traceability.
 
-### Key Development Principles
-- Phase-based development (Workspace → Communication → Agents → Orchestration)
-- Accumulative testing (new modules are always tested together with previous ones)
-- Muscular Prompt Engineering methodology applied consistently
-- Clean separation of concerns between agents
-- Professional git workflow using Conventional Commits
+### Development Phases
 
-### Commit History Overview
+| Phase | Focus Area                        | Highlights |
+|-------|-----------------------------------|----------|
+| 0–1   | Project Setup & Workspace         | Config, WorkspaceManager, JSON state handling |
+| 2     | Communication Layer               | Immutable Message dataclass + Queue-based MessageChannel |
+| 3     | Coder Agent                       | Simulated code generation + deep validation tests |
+| 4     | Tester Agent                      | Secure subprocess execution, path validation, timeout handling |
+| 5     | Engineer + Prompt Engineering     | Deterministic structure designer + Muscular prompt generator |
+| 6     | Supervisor & Main Loop            | State machine orchestrator + full workflow + error recovery |
 
-| Phase       | Focus                              | Highlights |
-|-------------|------------------------------------|----------|
-| **0–1**     | Project Setup & Workspace          | Config, WorkspaceManager, JSON state handling |
-| **2**       | Communication Layer                | Message dataclass + Queue-based MessageChannel |
-| **3**       | Coder Agent                        | Simulated code generation + integration tests |
-| **4**       | Tester Agent                       | Secure subprocess execution, path validation, timeout handling |
-| **5**       | Engineer + Prompt Engineering      | Structure designer + Muscular prompt generator |
-| **6**       | Supervisor & Main Loop             | State machine orchestrator + full workflow + error recovery |
-| **Final**   | Documentation & Polish             | README, LICENSE, TECHNICAL.md, sample output project |
+**Total:** 36+ commits following Conventional Commits standards.
 
-**Total:** 30+ commits with Conventional Commit messages.
-
-This disciplined development process is the same methodology that MetaForge itself automates.
+This disciplined development approach is the same methodology that MetaForge itself automates.
 
 ---
 
-## 📜 License & Usage Notice
+## Project Structure
 
-This project is released under the **MIT License**.
-
-While the license permits commercial use, this project was developed as part of personal research and learning. I kindly ask that you **do not sell or redistribute this work as your own** without permission. If you use parts of this project in your own work, proper attribution would be appreciated.
+```
+MetaForge/
+├── main.py                      # Main entry point
+├── agents/
+│   ├── supervisor.py            # Central state machine orchestrator
+│   ├── engineer.py              # Structure design + muscular prompt generation
+│   ├── coder.py                 # Code generation from prompts
+│   └── tester.py                # Secure code execution and validation
+├── communication/
+│   ├── message.py               # Immutable Message dataclass
+│   └── message_channel.py       # Queue-based inter-agent communication
+├── workspace/
+│   └── workspace_manager.py     # JSON-based state and logging manager
+├── project_design/
+│   ├── structure_designer.py    # Phase and module breakdown
+│   └── prompt_generator.py      # Muscular prompt generator
+├── output/                      # Auto-generated projects
+│   ├── calculator.py
+│   ├── input_handler.py
+│   └── main.py
+└── tests/                       # Unit and integration tests
+```
 
 ---
 
-## 📬 Contact
+## Getting Started
 
-For questions about the methodology or potential collaboration, feel free to reach out.
+```bash
+git clone https://github.com/PyAimind/MetaForge.git
+cd MetaForge
+python main.py
+```
+
+After running, check the `output/` folder for the generated project.
+
+**Requirements:** Python 3.10+
 
 ---
 
-**Made with curiosity and persistence.**
+## Challenges & Key Learnings
+
+- Designing a reliable state machine for the Supervisor without overcomplicating the architecture
+- Preventing prompt leakage and safely extracting code from LLM-style responses
+- Building accumulative tests that validate new modules together with previous ones
+- Maintaining strict separation of concerns between agents while keeping the system simple
+- Handling real-world issues like timeouts, path traversal attacks, and corrupted state files
+
+These challenges helped shape both the final system and the underlying Muscular Prompt Engineering methodology.
+
+---
+
+## Future Roadmap
+
+- **v2.0**: Connect Engineer and Coder to real LLM APIs (DeepSeek, Gemini, etc.)
+- **v3.0**: Add automatic multi-round error recovery without human intervention
+- **v4.0**: Support for multiple programming languages and more complex project types
+
+---
+
+## License
+
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+
+**Note:** While the code is open source, the core "Muscular Prompt Engineering Methodology" and system design are the result of original research and development.
+
+---
+
+**Built with ❤️ at 16 years old**  
+Exploring the future of autonomous software engineering.
