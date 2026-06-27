@@ -55,14 +55,14 @@ MetaForge consists of four specialized agents that communicate through a queue-b
 ### Workflow
 
 ```mermaid
-flowchart TD
+graph TD
     A[User Idea] --> B[Supervisor]
     B --> C[Engineer: Design Structure]
     C --> D[Engineer: Generate Prompts]
     D --> E[Coder: Write Code]
     E --> F[Tester: Execute & Validate]
-    F -->|Pass| G[Success - Output Project]
-    F -->|Fail| H[Supervisor: Request Fix]
+    F -->|Pass| G[Success]
+    F -->|Fail| H[Request Fix]
     H --> C
 ```
 
