@@ -1,85 +1,76 @@
 import os
+import json
 import queue
 from communication.message import Message
 from communication.message_channel import MessageChannel
 from workspace.workspace_manager import WorkspaceManager
+from project_design.code_generator_llm import FALLBACK_CODE
 import config
 
 class Coder:
-    def __init__(self, channel: MessageChannel, workspace: WorkspaceManager):
+    def __init__(self, channel: MessageChannel, workspace: WorkspaceManager, generator: object):
         if not isinstance(channel, MessageChannel):
             raise TypeError("channel must be a MessageChannel instance")
         if not isinstance(workspace, WorkspaceManager):
             raise TypeError("workspace must be a WorkspaceManager instance")
+        if generator is None or not callable(getattr(generator, 'generate', None)):
+            raise TypeError("generator must have a callable 'generate' method")
         self.channel = channel
         self.workspace = workspace
-
-    def _looks_like_prompt(self, text: str) -> bool:
-        markers = ["Write a Python file", "### Dependencies", "### Implementation Requirements", "### Strict Constraints"]
-        return any(marker in text for marker in markers)
-
-    def _extract_python_code(self, text: str) -> str:
-        lines = text.split('\n')
-        inside = False
-        captured = []
-        for line in lines:
-            if line.startswith("```python"):
-                inside = True
-                continue
-            if line.startswith("```") and inside:
-                break
-            if inside:
-                captured.append(line)
-        return '\n'.join(captured)
+        self.generator = generator
 
     def process_command(self, message: Message) -> Message:
+        if message.msg_type != "CommandMsg":
+            return Message(sender="coder", receiver="supervisor", msg_type="ResultMsg",
+                           phase=message.phase, payload={"status": "error", "reason": "Invalid message type: expected CommandMsg"})
+        payload = message.payload
+        filename = payload.get("filename", "untitled.py")
+        if not isinstance(filename, str) or not filename.strip():
+            filename = "untitled.py"
+        else:
+            filename = os.path.basename(filename.strip())
+        if not filename.endswith(".py"):
+            filename += ".py"
+        provided_code = payload.get("code")
+        if isinstance(provided_code, str) and provided_code.strip():
+            try:
+                compile(provided_code, filename, 'exec')
+                code = provided_code
+            except Exception:
+                self.workspace.log_event(f"Coder: direct code invalid for {filename}, using generator", message.phase)
+                module_info = {
+                    "filename": filename,
+                    "description": payload.get("description", ""),
+                    "dependencies": payload.get("dependencies", []),
+                    "purpose": payload.get("purpose", "")
+                }
+                code = self.generator.generate(module_info)
+        else:
+            module_info = {
+                "filename": filename,
+                "description": payload.get("description", ""),
+                "dependencies": payload.get("dependencies", []),
+                "purpose": payload.get("purpose", "")
+            }
+            try:
+                code = self.generator.generate(module_info)
+            except Exception as e:
+                self.workspace.log_event(f"Coder generator failed for {filename}: {e}", message.phase)
+                code = FALLBACK_CODE
+        if code == FALLBACK_CODE:
+            self.workspace.log_event(f"Coder used FALLBACK for: {filename}", message.phase)
+        os.makedirs(config.OUTPUT_DIR, exist_ok=True)
+        filepath = os.path.join(config.OUTPUT_DIR, filename)
         try:
-            if message.msg_type != "CommandMsg":
-                return Message(sender="coder", receiver="supervisor", msg_type="ResultMsg",
-                               phase=message.phase, payload={"status": "error", "reason": "Invalid message type: expected CommandMsg"})
-            filename = message.payload.get("filename", "untitled.py")
-            filename = os.path.basename(filename)
-            if not filename:
-                filename = "untitled.py"
-            code = message.payload.get("code")
-            if not isinstance(code, str):
-                code = ""
-            if code and not self._looks_like_prompt(code):
-                final_code = code
-            elif code and self._looks_like_prompt(code):
-                extracted = self._extract_python_code(code)
-                if extracted and extracted.strip():
-                    final_code = extracted
-                else:
-                    if filename == "input_handler.py":
-                        final_code = "def get_input():\n    a = float(input(\"Enter first number: \"))\n    b = float(input(\"Enter second number: \"))\n    op = input(\"Enter operator (+, -, *, /): \")\n    return a, b, op\n"
-                    elif filename == "calculator.py":
-                        final_code = "def calculate(a, b, op):\n    if op == '+': return a + b\n    elif op == '-': return a - b\n    elif op == '*': return a * b\n    elif op == '/':\n        if b == 0: raise ValueError(\"Division by zero\")\n        return a / b\n    else: raise ValueError(\"Invalid operator\")\n"
-                    elif filename == "main.py":
-                        final_code = "from input_handler import get_input\nfrom calculator import calculate\n\ndef main():\n    a, b, op = get_input()\n    result = calculate(a, b, op)\n    print(f\"Result: {result}\")\n\nif __name__ == \"__main__\":\n    main()\n"
-                    else:
-                        final_code = "# Placeholder module\ndef placeholder():\n    pass\n"
-            else:
-                if filename == "input_handler.py":
-                    final_code = "def get_input():\n    a = float(input(\"Enter first number: \"))\n    b = float(input(\"Enter second number: \"))\n    op = input(\"Enter operator (+, -, *, /): \")\n    return a, b, op\n"
-                elif filename == "calculator.py":
-                    final_code = "def calculate(a, b, op):\n    if op == '+': return a + b\n    elif op == '-': return a - b\n    elif op == '*': return a * b\n    elif op == '/':\n        if b == 0: raise ValueError(\"Division by zero\")\n        return a / b\n    else: raise ValueError(\"Invalid operator\")\n"
-                elif filename == "main.py":
-                    final_code = "from input_handler import get_input\nfrom calculator import calculate\n\ndef main():\n    a, b, op = get_input()\n    result = calculate(a, b, op)\n    print(f\"Result: {result}\")\n\nif __name__ == \"__main__\":\n    main()\n"
-                else:
-                    final_code = "# Placeholder module\ndef placeholder():\n    pass\n"
-            os.makedirs(config.OUTPUT_DIR, exist_ok=True)
-            filepath = os.path.join(config.OUTPUT_DIR, filename)
             with open(filepath, 'w', encoding='utf-8') as f:
-                f.write(final_code)
+                f.write(code)
             self.workspace.log_event(f"Coder wrote file: {filepath}", message.phase)
             return Message(sender="coder", receiver="supervisor", msg_type="ResultMsg",
                            phase=message.phase, payload={"filepath": filepath, "status": "success"})
         except Exception as e:
-            phase = getattr(message, "phase", -1)
-            self.workspace.log_event(f"Coder error: {e}", phase)
+            self.workspace.log_event(f"Coder error: {e}", message.phase)
             return Message(sender="coder", receiver="supervisor", msg_type="ResultMsg",
-                           phase=phase, payload={"status": "error", "reason": f"{type(e).__name__}: {str(e)}"})
+                           phase=message.phase, payload={"status": "error", "reason": f"{type(e).__name__}: {str(e)}"})
 
     def step(self) -> bool:
         try:
