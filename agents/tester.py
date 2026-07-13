@@ -1,7 +1,5 @@
-import sys
 import os
 import json
-import subprocess
 import queue
 from communication.message import Message
 from communication.message_channel import MessageChannel
@@ -9,81 +7,71 @@ from workspace.workspace_manager import WorkspaceManager
 import config
 
 class Tester:
-    def __init__(self, channel: MessageChannel, workspace: WorkspaceManager):
+    def __init__(self, channel: MessageChannel, workspace: WorkspaceManager, executor):
         if not isinstance(channel, MessageChannel):
             raise TypeError("channel must be a MessageChannel instance")
         if not isinstance(workspace, WorkspaceManager):
             raise TypeError("workspace must be a WorkspaceManager instance")
+        if executor is None or not callable(getattr(executor, 'execute', None)):
+            raise TypeError("executor must have a callable 'execute' method")
         self.channel = channel
         self.workspace = workspace
-        self._current_filepath = ""
+        self.executor = executor
 
-    def _error_response(self, phase: int, reason: str) -> Message:
-        return Message(sender="tester", receiver="supervisor", msg_type="ResultMsg",
-                       phase=phase, payload={"status": "error", "reason": reason})
+    def _error_response(self, phase, reason):
+        return Message(
+            sender="tester",
+            receiver="supervisor",
+            msg_type="ResultMsg",
+            phase=phase,
+            payload={"status": "error", "reason": reason}
+        )
 
-    def _validate_message(self, message: Message) -> Message:
+    def process_command(self, message: Message) -> Message:
         if message.msg_type != "CommandMsg":
-            return self._error_response(message.phase, "Invalid message type: expected CommandMsg")
+            return self._error_response(message.phase, "Invalid message type")
         if not isinstance(message.payload, dict):
-            return self._error_response(message.phase, "Invalid payload: must be a dict")
+            return self._error_response(message.phase, "Invalid payload")
         filepath = message.payload.get("filepath")
-        if not isinstance(filepath, str) or not filepath:
+        if not isinstance(filepath, str) or not filepath.strip():
             return self._error_response(message.phase, "Missing or invalid filepath")
-        filepath = os.path.realpath(filepath)
-        output_dir_real = os.path.realpath(config.OUTPUT_DIR)
-        if os.path.commonpath([output_dir_real, filepath]) != output_dir_real:
-            return self._error_response(message.phase, "Filepath outside output directory")
-        self._current_filepath = filepath
-        return None
-
-    def _build_result(self, result: subprocess.CompletedProcess) -> dict:
-        return {"status": "passed" if result.returncode == 0 else "failed",
-                "stdout": result.stdout, "stderr": result.stderr, "returncode": result.returncode}
-
-    def _safe_log(self, exec_result: dict, filepath: str, phase: int) -> None:
+        abs_file = os.path.abspath(filepath)
+        abs_output = os.path.abspath(config.OUTPUT_DIR)
         try:
-            self.workspace.save_test_result(phase, exec_result["status"],
-                                            json.dumps({"stdout": exec_result["stdout"], "stderr": exec_result["stderr"]}))
-            self.workspace.log_event(f"Tester {exec_result['status']}: {filepath}", phase)
-        except Exception:
+            if os.path.commonpath([abs_output, abs_file]) != abs_output:
+                return self._error_response(message.phase, "Access denied")
+        except ValueError:
+            return self._error_response(message.phase, "Access denied")
+        if not os.path.isfile(abs_file):
+            return self._error_response(message.phase, "File not found")
+        try:
+            result = self.executor.execute(abs_file)
+        except Exception as e:
             try:
-                self.workspace.log_event("Tester failed to log test result", phase)
+                self.workspace.log_event(f"Tester executor error: {e}", message.phase)
             except Exception:
                 pass
+            return self._error_response(message.phase, f"Executor failed: {str(e)}")
+        required_keys = {"status", "return_code", "stdout", "stderr", "execution_time"}
+        if not isinstance(result, dict) or not required_keys.issubset(result):
+            return self._error_response(message.phase, "Invalid executor result")
+        self.workspace.save_test_result(message.phase, result["status"], json.dumps(result))
+        self.workspace.log_event(f"Tester {result['status']}: {abs_file}", message.phase)
+        payload = dict(result)
+        payload["filepath"] = abs_file
+        return Message(
+            sender="tester",
+            receiver="supervisor",
+            msg_type="ResultMsg",
+            phase=message.phase,
+            payload=payload
+        )
 
     def step(self) -> bool:
         try:
-            msg: Message = self.channel.receive("tester", timeout=0.1)
+            msg = self.channel.receive("tester", timeout=0.1)
         except queue.Empty:
             return False
-        try:
-            result = self.process_command(msg)
-        except Exception as e:
-            error_result = Message(sender="tester", receiver="supervisor", msg_type="ResultMsg",
-                                   phase=msg.phase, payload={"status": "error", "reason": f"{type(e).__name__}: {str(e)}"})
-            result = error_result
+        result = self.process_command(msg)
         self.channel.send(result)
         return True
-
-    def process_command(self, message: Message) -> Message:
-        error = self._validate_message(message)
-        if error is not None:
-            return error
-        filepath = self._current_filepath
-        os.makedirs(config.OUTPUT_DIR, exist_ok=True)
-        exec_result = self._execute_file(filepath)
-        self._safe_log(exec_result, filepath, message.phase)
-        return Message(sender="tester", receiver="supervisor", msg_type="ResultMsg",
-                       phase=message.phase, payload={"filepath": filepath, "status": exec_result["status"],
-                                                     "stdout": exec_result["stdout"], "stderr": exec_result["stderr"],
-                                                     "returncode": exec_result["returncode"]})
-
-    def _execute_file(self, filepath: str) -> dict:
-        try:
-            result = subprocess.run([sys.executable, filepath], capture_output=True, text=True, timeout=5, cwd=config.OUTPUT_DIR)
-            return self._build_result(result)
-        except subprocess.TimeoutExpired:
-            return {"status": "timeout", "stdout": "", "stderr": "Execution timed out after 5 seconds", "returncode": -1}
-        except Exception as e:
-            return {"status": "error", "stdout": "", "stderr": str(e), "returncode": -1}
