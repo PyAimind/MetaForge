@@ -1,6 +1,8 @@
 import os
 import sys
 import time
+from dotenv import load_dotenv
+load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 from workspace.workspace_manager import WorkspaceManager
 from communication.message_channel import MessageChannel
 from llm_provider import LLMProvider
