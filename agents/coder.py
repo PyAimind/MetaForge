@@ -1,5 +1,4 @@
 import os
-import json
 import queue
 from communication.message import Message
 from communication.message_channel import MessageChannel
@@ -65,8 +64,12 @@ class Coder:
             with open(filepath, 'w', encoding='utf-8') as f:
                 f.write(code)
             self.workspace.log_event(f"Coder wrote file: {filepath}", message.phase)
+            final_status = "fallback" if code.strip() == FALLBACK_CODE.strip() else "success"
             return Message(sender="coder", receiver="supervisor", msg_type="ResultMsg",
-                           phase=message.phase, payload={"filepath": filepath, "status": "success"})
+                           phase=message.phase, payload={
+                               "filepath": filepath,
+                               "status": final_status
+                           })
         except Exception as e:
             self.workspace.log_event(f"Coder error: {e}", message.phase)
             return Message(sender="coder", receiver="supervisor", msg_type="ResultMsg",
