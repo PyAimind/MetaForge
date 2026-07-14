@@ -16,7 +16,6 @@ class Supervisor:
         self.channel = channel
         self.workspace = workspace
 
-        # Internal State
         self.idea = ""
         self.status = "idle"
         self.modules = []
@@ -59,8 +58,6 @@ class Supervisor:
             self.status = "error"
             return False
 
-    # ====================== State Handlers ======================
-
     def _handle_designing(self) -> bool:
         self._send_command("engineer", "design_structure", {"idea": self.idea})
         self.status = "waiting_for_engineer"
@@ -78,7 +75,6 @@ class Supervisor:
             self.status = "error"
             return True
 
-        # حالت ۱: دریافت ساختار پروژه
         if "structure" in msg.payload:
             structure = msg.payload["structure"]
             self.modules = []
@@ -90,7 +86,6 @@ class Supervisor:
             self._send_command("engineer", "generate_prompts", {})
             return True
 
-        # حالت ۲: دریافت پرامپت (اولیه یا فیکس)
         if "prompts" in msg.payload:
             self.prompts.update(msg.payload["prompts"])
 
@@ -99,6 +94,9 @@ class Supervisor:
                 prompt = self.prompts.get(mod["filename"], "")
                 self._send_command("coder", "code", {
                     "filename": mod["filename"],
+                    "description": mod.get("description", ""),
+                    "dependencies": mod.get("dependencies", []),
+                    "purpose": mod.get("purpose", ""),
                     "code": prompt
                 })
                 self.status = "waiting_for_coder"
@@ -113,10 +111,16 @@ class Supervisor:
         except queue.Empty:
             return False
 
-        if msg.payload.get("status") == "success":
+        coder_status = msg.payload.get("status")
+        if coder_status == "success":
             filepath = msg.payload.get("filepath", "")
             self._send_command("tester", "test", {"filepath": filepath})
             self.status = "waiting_for_tester"
+        elif coder_status == "fallback":
+            filename = os.path.basename(msg.payload.get("filepath", ""))
+            self.workspace.log_event(f"Supervisor: Coder used fallback code for module '{filename}'", self.current_module_index + 1)
+            self.status = "error"
+            return True
         else:
             self.workspace.log_event(f"Coder error: {msg.payload.get('reason', '')}")
             if self.current_module_index < len(self.modules):
@@ -144,6 +148,9 @@ class Supervisor:
                 prompt = self.prompts.get(mod["filename"], "")
                 self._send_command("coder", "code", {
                     "filename": mod["filename"],
+                    "description": mod.get("description", ""),
+                    "dependencies": mod.get("dependencies", []),
+                    "purpose": mod.get("purpose", ""),
                     "code": prompt
                 })
                 self.status = "waiting_for_coder"
