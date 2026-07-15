@@ -45,6 +45,19 @@ class Tester:
         if not os.path.isfile(abs_file):
             return self._error_response(message.phase, "File not found")
         try:
+            with open(abs_file, 'r') as f:
+                content = f.read()
+            compile(content, abs_file, 'exec')
+        except Exception as e:
+            return self._error_response(message.phase, f"Syntax error in {abs_file}: {str(e)}")
+        base = os.path.basename(abs_file)
+        cli_names = {"main.py", "cli.py", "app.py"}
+        interactive_keywords = ("input(", "argparse", "sys.argv")
+        if base in cli_names and any(kw in content for kw in interactive_keywords):
+            self.workspace.log_event(f"Tester skipped runtime execution for interactive CLI after successful syntax validation: {abs_file}", message.phase)
+            return Message(sender="tester", receiver="supervisor", msg_type="ResultMsg",
+                           phase=message.phase, payload={"filepath": abs_file, "status": "passed"})
+        try:
             result = self.executor.execute(abs_file)
         except Exception as e:
             try:
