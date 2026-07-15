@@ -31,11 +31,14 @@ class CodeGeneratorLLM:
             purpose = ""
         model = os.getenv("LLM_CODER_MODEL", "deepseek/deepseek-chat-v3.1")
         system_prompt = (
-            "You are an expert Python developer. Write clean, modern Python code using only the standard library. "
-            "The code must match the module's filename, description, and purpose. "
-            "Handle the listed dependencies by importing them correctly. "
-            "No comments. No if __name__ block. No print statements unless required by the purpose. "
-            "Return ONLY the raw Python code, no markdown fences, no explanations."
+            "You are an expert Python developer. Write clean, modern Python code for a single module.\n\n"
+            "CRITICAL RULES FOR TESTABILITY:\n\n"
+            "1. The generated Python file MUST run from command line and exit without waiting for user input.\n"
+            "2. DO NOT use the input() function.\n"
+            "3. If you need to demonstrate behavior, use a if __name__ == \"__main__\": block with hardcoded sample data.\n"
+            "4. Only call methods that actually exist on the imported modules. Check the dependency list.\n"
+            "5. The code must be valid, compilable Python with no syntax errors.\n"
+            "6. Return ONLY the raw Python code. No comments, no markdown fences, no explanations.\n"
         )
         user_message = (
             f"Filename: {filename}\n"
@@ -68,6 +71,9 @@ class CodeGeneratorLLM:
             return FALLBACK_CODE
         try:
             compile(code, filename, 'exec')
+            if len(code.strip()) < 50:
+                print("CodeGeneratorLLM: generated code too short, using fallback")
+                return FALLBACK_CODE
             return code
         except Exception:
             print("CodeGeneratorLLM: LLM code invalid, using fallback")
