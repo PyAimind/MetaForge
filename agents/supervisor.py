@@ -21,6 +21,7 @@ class Supervisor:
         self.modules = []
         self.current_module_index = 0
         self.prompts = {}
+        self.fix_attempts = {}
 
     def set_idea(self, idea: str) -> None:
         self.idea = idea
@@ -142,6 +143,8 @@ class Supervisor:
         status = msg.payload.get("status")
 
         if status == "passed":
+            mod_key = self.modules[self.current_module_index]["filename"]
+            self.fix_attempts[mod_key] = 0
             self.current_module_index += 1
             if self.current_module_index < len(self.modules):
                 mod = self.modules[self.current_module_index]
@@ -158,10 +161,16 @@ class Supervisor:
                 self.status = "completed"
                 self.workspace.log_event("Supervisor: project completed successfully")
 
-        elif status in ("failed", "timeout"):
+        elif status == "failed":
             self.workspace.log_event(f"Tester {status} for module index {self.current_module_index}")
             if self.current_module_index < len(self.modules):
                 mod = self.modules[self.current_module_index]
+                mod_key = mod["filename"]
+                self.fix_attempts[mod_key] = self.fix_attempts.get(mod_key, 0) + 1
+                if self.fix_attempts[mod_key] > 3:
+                    self.workspace.log_event(f"Supervisor: Max fix attempts reached for {mod_key}", self.current_module_index + 1)
+                    self.status = "error"
+                    return True
                 self._send_command("engineer", "generate_single_prompt", {
                     "module_info": mod,
                     "is_fix": True
