@@ -1,5 +1,6 @@
 import os
 import json
+import time
 import requests
 
 class LLMProvider:
@@ -39,21 +40,18 @@ class LLMProvider:
             "temperature": temperature
         }
 
-        resp = self.session.post(self.base_url, json=payload, headers=headers, timeout=30)
-
-        if resp.status_code != 200:
-            raise ConnectionError(f"DeepSeek API returned status {resp.status_code}: {resp.text}")
-
-        try:
-            data = resp.json()
-        except json.JSONDecodeError:
-            raise ValueError("Invalid JSON response from DeepSeek API.")
-
-        try:
-            content = data["choices"][0]["message"]["content"]
-            return content
-        except (KeyError, IndexError, TypeError):
-            raise ValueError("Invalid response structure from DeepSeek API.")
+        for attempt in range(3):
+            try:
+                resp = self.session.post(self.base_url, json=payload, headers=headers, timeout=30)
+                if resp.status_code != 200:
+                    raise ConnectionError(f"DeepSeek API returned status {resp.status_code}: {resp.text}")
+                data = resp.json()
+                content = data["choices"][0]["message"]["content"]
+                return content
+            except Exception:
+                if attempt == 2:
+                    raise
+                time.sleep(1)
 
     def get_usage(self) -> dict:
         return {
