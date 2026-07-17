@@ -1,23 +1,29 @@
 # MetaForge
 
-MetaForge is an autonomous multi-agent system that transforms a natural language idea into a complete, runnable Python project. Powered by large language models, it coordinates specialized agents to design architecture, generate code, execute and validate the output, and is designed to fail gracefully: when the LLM cannot produce production-quality code, the system detects this and deliberately halts the project, ensuring that no broken code is ever delivered.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
+[![LLM](https://img.shields.io/badge/LLM-Powered-orange.svg)]()
+[![Multi-Agent](https://img.shields.io/badge/Architecture-Multi--Agent-green.svg)]()
+[![Version](https://img.shields.io/badge/Version-2.0-brightgreen.svg)]()
+
+MetaForge transforms a natural language software idea into a runnable multi-module Python project using a coordinated team of LLM-powered agents. It is designed to fail gracefully: when the LLM cannot produce production-quality code, the system detects this and deliberately halts the project, ensuring that no broken code is ever delivered.
+
+### Why MetaForge?
+
+Unlike simple AI wrappers that ask one model to generate an entire project, MetaForge introduces a structured software-engineering pipeline. The system decomposes the task into specialized agents (Supervisor, Engineer, Coder, and Tester) that collaborate through a message-passing architecture. This design prioritizes reliability, observability, and controlled failure over pure generation speed.
 
 ### How It Works
 
-```
-Idea
-  │
-  ▼
-Supervisor
-  │
-  ├──► Engineer (designs structure & prompts)
-  │
-  ├──► Coder (generates production code)
-  │
-  ├──► Tester (executes & validates)
-  │
-  ▼
-Final Output + Diagnostics
+```mermaid
+flowchart TD
+    A[User Idea] --> B[Supervisor]
+    B --> C[Engineer]
+    C --> B
+    B --> D[Coder]
+    D --> B
+    B --> E[Tester]
+    E --> B
+    B --> F[Final Output + Diagnostics]
 ```
 
 ### Key Features
@@ -32,7 +38,7 @@ Final Output + Diagnostics
 ### Installation & Usage
 
 ```bash
-git clone https://github.com/pyaimind/MetaForge.git
+git clone https://github.com/PyAimind/MetaForge.git
 cd MetaForge
 
 pip install -r requirements.txt
@@ -93,6 +99,15 @@ MetaForge/
 ├── .env
 └── config.py
 ```
+
+### Roadmap
+
+- ✅ **v1.0** — Simulated agents with mock responses
+- ✅ **v2.0** — Full LLM-powered agents + Fallback + Diagnostics
+- ⬜ **v3.0** — Agent Memory & Context Sharing
+- ⬜ **v3.0** — Parallel Coding + Agent Debate
+- ⬜ **v3.0** — Self-Repair Loop
+- ⬜ **v3.0** — Web Interface
 
 ### Version History
 
