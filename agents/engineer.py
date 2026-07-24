@@ -1,11 +1,14 @@
+import os
+import json
 import queue
 from communication.message import Message
 from communication.message_channel import MessageChannel
 from workspace.workspace_manager import WorkspaceManager
 from project_design.prompt_generator import generate_prompt
+from memory.knowledge_base import KnowledgeBase
 
 class Engineer:
-    def __init__(self, channel: MessageChannel, workspace: WorkspaceManager, designer):
+    def __init__(self, channel: MessageChannel, workspace: WorkspaceManager, designer, knowledge_base: KnowledgeBase = None):
         if not isinstance(channel, MessageChannel):
             raise TypeError("channel must be a MessageChannel instance")
         if not isinstance(workspace, WorkspaceManager):
@@ -15,6 +18,7 @@ class Engineer:
         self.channel = channel
         self.workspace = workspace
         self.designer = designer
+        self.knowledge_base = knowledge_base
 
     def _error_response(self, phase, reason):
         return Message(sender="engineer", receiver="supervisor", msg_type="ResultMsg",
@@ -49,10 +53,15 @@ class Engineer:
         idea = payload.get("idea")
         if not isinstance(idea, str) or not idea.strip():
             return self._error_response(phase, "Missing or invalid 'idea'")
+        original_idea = idea
+        if self.knowledge_base is not None:
+            context = self.knowledge_base.get_prompt_context(query=idea, role="engineer")
+            if context:
+                idea = f"{context}\n\nProject Idea: {idea}"
         try:
             structure = self.designer.design(idea)
             self.workspace.write_structure(structure)
-            self.workspace.log_event(f"Engineer designed structure for: {idea}", phase)
+            self.workspace.log_event(f"Engineer designed structure for: {original_idea}", phase)
             return self._success_response(phase, {"structure": structure})
         except Exception as e:
             self.workspace.log_event(f"Design structure failed: {e}", phase)

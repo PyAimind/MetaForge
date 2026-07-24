@@ -5,12 +5,13 @@ from communication.message_channel import MessageChannel
 from workspace.workspace_manager import WorkspaceManager
 from project_design.code_generator_llm import FALLBACK_CODE
 from project_design.context_manager import ContextManager
+from memory.knowledge_base import KnowledgeBase
 import config
 
 
 class Coder:
     def __init__(self, channel: MessageChannel, workspace: WorkspaceManager,
-                 generator: object, context_manager: ContextManager):
+                 generator: object, context_manager: ContextManager, knowledge_base: KnowledgeBase = None):
         if not isinstance(channel, MessageChannel):
             raise TypeError("channel must be a MessageChannel instance")
         if not isinstance(workspace, WorkspaceManager):
@@ -19,14 +20,14 @@ class Coder:
             raise TypeError("generator must have a callable 'generate' method")
         if context_manager is not None and not isinstance(context_manager, ContextManager):
             raise TypeError("context_manager must be a ContextManager instance")
-
         self.channel = channel
         self.workspace = workspace
         self.generator = generator
         self.context_manager = context_manager
+        self.knowledge_base = knowledge_base
         self.current_context = {}
 
-    def _build_module_info(self, filename: str, payload: dict) -> dict:
+    def _build_module_info(self, filename: str, payload: dict, phase: int) -> dict:
         module_info = {
             "filename": filename,
             "description": payload.get("description", ""),
@@ -38,8 +39,25 @@ class Coder:
                 other_modules = {k: v for k, v in self.context_manager.modules.items() if k != filename}
                 context_info = {"current_module": filename, "generated_modules": other_modules}
                 module_info["project_context"] = context_info
-            except Exception:
-                pass
+            except Exception as e:
+                self.workspace.log_event(f"Coder: failed to get project context for {filename}: {e}", phase)
+        else:
+            module_info["project_context"] = {
+                "current_module": filename,
+                "generated_modules": {}
+            }
+        kb_context = ""
+        if self.knowledge_base is not None:
+            try:
+                deps = module_info.get("dependencies", [])
+                dep_string = " ".join(deps) if deps else ""
+                search_query = " ".join(filter(None, [module_info.get("purpose", ""), module_info.get("description", ""), dep_string]))
+                context = self.knowledge_base.get_prompt_context(query=search_query, role="coder")
+                if context:
+                    kb_context = context
+            except Exception as e:
+                self.workspace.log_event(f"Coder: failed to get knowledge base context for {filename}: {e}", phase)
+        module_info["knowledge_base"] = kb_context
         return module_info
 
     def process_command(self, message: Message) -> Message:
@@ -64,10 +82,10 @@ class Coder:
                 code = provided_code
             except Exception:
                 self.workspace.log_event(f"Coder: direct code invalid for {filename}, using generator", message.phase)
-                module_info = self._build_module_info(filename, payload)
+                module_info = self._build_module_info(filename, payload, message.phase)
                 code = self.generator.generate(module_info)
         else:
-            module_info = self._build_module_info(filename, payload)
+            module_info = self._build_module_info(filename, payload, message.phase)
             try:
                 code = self.generator.generate(module_info)
             except Exception as e:
@@ -81,8 +99,8 @@ class Coder:
             try:
                 self.context_manager.add_module(filename, code)
                 self.current_context = {"generated_modules": self.context_manager.modules, "module_count": len(self.context_manager.modules)}
-            except Exception:
-                pass
+            except Exception as e:
+                self.workspace.log_event(f"Coder: failed to add module to context for {filename}: {e}", message.phase)
 
         os.makedirs(config.OUTPUT_DIR, exist_ok=True)
         filepath = os.path.join(config.OUTPUT_DIR, filename)
