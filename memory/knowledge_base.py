@@ -129,3 +129,10 @@ class KnowledgeBase:
                 truncated += "\n" + line
             full_text = truncated
         return full_text
+    
+    def find_similar_failures(self, query: str) -> dict:
+        results = self.search(query=query, tags=None, match="any")
+        return {
+            "failures": results.get("failures", []),
+            "lessons": results.get("lessons", [])
+        }
