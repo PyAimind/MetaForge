@@ -5,9 +5,10 @@ from communication.message import Message
 from communication.message_channel import MessageChannel
 from workspace.workspace_manager import WorkspaceManager
 import config
+from agents.debugger import Debugger
 
 class Supervisor:
-    def __init__(self, channel: MessageChannel, workspace: WorkspaceManager):
+    def __init__(self, channel: MessageChannel, workspace: WorkspaceManager, debugger: Debugger = None):
         if not isinstance(channel, MessageChannel):
             raise TypeError("channel must be a MessageChannel instance")
         if not isinstance(workspace, WorkspaceManager):
@@ -15,6 +16,7 @@ class Supervisor:
 
         self.channel = channel
         self.workspace = workspace
+        self.debugger = debugger
 
         self.idea = ""
         self.status = "idle"
@@ -37,6 +39,14 @@ class Supervisor:
             payload={"action": action, **payload}
         )
         self.channel.send(msg)
+
+    def _analyze_failure(self, filepath, stderr, stdout, return_code) -> dict:
+        if self.debugger is None:
+            return {}
+        try:
+            return self.debugger.analyze_error(filepath, stderr, stdout, return_code)
+        except Exception:
+            return {}
 
     def step(self) -> bool:
         try:
@@ -161,7 +171,7 @@ class Supervisor:
                 self.status = "completed"
                 self.workspace.log_event("Supervisor: project completed successfully")
 
-        elif status == "failed":
+        elif status in ("failed", "timeout"):
             self.workspace.log_event(f"Tester {status} for module index {self.current_module_index}")
             if self.current_module_index < len(self.modules):
                 mod = self.modules[self.current_module_index]
@@ -171,10 +181,20 @@ class Supervisor:
                     self.workspace.log_event(f"Supervisor: Max fix attempts reached for {mod_key}", self.current_module_index + 1)
                     self.status = "error"
                     return True
-                self._send_command("engineer", "generate_single_prompt", {
+                payload = {
                     "module_info": mod,
                     "is_fix": True
-                })
+                }
+                filepath = msg.payload.get("filepath", "")
+                stderr = msg.payload.get("stderr", "")
+                stdout = msg.payload.get("stdout", "")
+                return_code = msg.payload.get("return_code")
+
+                if return_code is not None:
+                    diagnosis = self._analyze_failure(filepath, stderr, stdout, return_code)
+                    if diagnosis:
+                        payload["debugger_diagnosis"] = diagnosis
+                self._send_command("engineer", "generate_single_prompt", payload)
                 self.status = "waiting_for_engineer"
 
         return True
