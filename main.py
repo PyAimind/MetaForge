@@ -9,6 +9,9 @@ from llm_provider import LLMProvider
 from project_design.structure_designer_llm import StructureDesignerLLM
 from project_design.code_generator_llm import CodeGeneratorLLM
 from project_design.code_executor import CodeExecutor
+from project_design.context_manager import ContextManager
+from memory.knowledge_base import KnowledgeBase
+from agents.debugger import Debugger
 from agents.supervisor import Supervisor
 from agents.engineer import Engineer
 from agents.coder import Coder
@@ -22,7 +25,10 @@ def build_dependencies():
     designer = StructureDesignerLLM(provider)
     generator = CodeGeneratorLLM(provider)
     executor = CodeExecutor()
-    return designer, generator, executor
+    ctx = ContextManager(config.OUTPUT_DIR)
+    kb = KnowledgeBase()
+    debugger = Debugger(knowledge_base=kb)
+    return designer, generator, executor, ctx, kb, debugger
 
 os.makedirs(config.WORKSPACE_DIR, exist_ok=True)
 os.makedirs(config.OUTPUT_DIR, exist_ok=True)
@@ -30,10 +36,10 @@ os.makedirs(config.OUTPUT_DIR, exist_ok=True)
 try:
     wm = WorkspaceManager()
     channel = MessageChannel()
-    designer, generator, executor = build_dependencies()
-    supervisor = Supervisor(channel, wm)
-    engineer = Engineer(channel, wm, designer)
-    coder = Coder(channel, wm, generator)
+    designer, generator, executor, ctx, kb, debugger = build_dependencies()
+    supervisor = Supervisor(channel, wm, debugger)
+    engineer = Engineer(channel, wm, designer, knowledge_base=kb)
+    coder = Coder(channel, wm, generator, ctx, knowledge_base=kb)
     tester = Tester(channel, wm, executor)
     agents = [engineer, coder, tester]
 

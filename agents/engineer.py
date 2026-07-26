@@ -89,6 +89,9 @@ class Engineer:
         module_info = payload.get("module_info")
         if not isinstance(module_info, dict):
             return self._error_response(phase, "Missing or invalid 'module_info'")
+        module_info = dict(module_info)
+        if "debugger_diagnosis" in payload:
+            module_info["debugger_diagnosis"] = payload["debugger_diagnosis"]
         prompt = generate_prompt(module_info)
         return self._success_response(phase, {"prompts": {"fixed_module.py": prompt}})
 
