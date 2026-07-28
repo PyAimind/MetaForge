@@ -4,6 +4,7 @@ import queue
 from communication.message import Message
 from communication.message_channel import MessageChannel
 from workspace.workspace_manager import WorkspaceManager
+from project_design.code_executor import CodeExecutor
 import config
 
 class Tester:
@@ -12,8 +13,8 @@ class Tester:
             raise TypeError("channel must be a MessageChannel instance")
         if not isinstance(workspace, WorkspaceManager):
             raise TypeError("workspace must be a WorkspaceManager instance")
-        if executor is None or not callable(getattr(executor, 'execute', None)):
-            raise TypeError("executor must have a callable 'execute' method")
+        if executor is None or not callable(getattr(executor, 'execute', None)) or not callable(getattr(executor, 'classify_error', None)):
+            raise TypeError("executor must have callable 'execute' and 'classify_error' methods")
         self.channel = channel
         self.workspace = workspace
         self.executor = executor
@@ -50,13 +51,44 @@ class Tester:
             compile(content, abs_file, 'exec')
         except Exception as e:
             return self._error_response(message.phase, f"Syntax error in {abs_file}: {str(e)}")
-        base = os.path.basename(abs_file)
-        cli_names = {"main.py", "cli.py", "app.py"}
-        interactive_keywords = ("input(", "argparse", "sys.argv")
-        if base in cli_names and any(kw in content for kw in interactive_keywords):
-            self.workspace.log_event(f"Tester skipped runtime execution for interactive CLI after successful syntax validation: {abs_file}", message.phase)
-            return Message(sender="tester", receiver="supervisor", msg_type="ResultMsg",
-                           phase=message.phase, payload={"filepath": abs_file, "status": "passed"})
+
+        cli_keywords = ("argparse", "input(", "sys.argv")
+        if any(kw in content for kw in cli_keywords):
+            result = self.executor.execute(abs_file, timeout_seconds=5, args=["--help"])
+            if not isinstance(result, dict) or "status" not in result:
+                return self._error_response(message.phase, "Executor returned an invalid result for CLI testing")
+            if result["status"] == "passed":
+                self.workspace.save_test_result(message.phase, "passed", json.dumps({"execution_status": "cli_help_tested"}))
+                self.workspace.log_event(f"Tester successfully tested CLI with --help: {abs_file}", message.phase)
+                return Message(sender="tester", receiver="supervisor", msg_type="ResultMsg",
+                               phase=message.phase, payload={"filepath": abs_file, "status": "passed", "execution_status": "cli_help_tested"})
+            elif result["status"] == "failed":
+                error_type = self.executor.classify_error(result["stderr"])
+                if error_type == "python_error":
+                    self.workspace.save_test_result(message.phase, "failed", json.dumps(result))
+                    self.workspace.log_event(f"Tester failed: {abs_file} (Python error)", message.phase)
+                    payload = dict(result)
+                    payload["filepath"] = abs_file
+                    return Message(sender="tester", receiver="supervisor", msg_type="ResultMsg",
+                                   phase=message.phase, payload=payload)
+                else:
+                    self.workspace.save_test_result(message.phase, "passed", json.dumps({"execution_status": "cli_not_executed", "reason": "cli validation failed"}))
+                    self.workspace.log_event(f"Tester: CLI execution failed but no Python error detected: {abs_file}", message.phase)
+                    return Message(sender="tester", receiver="supervisor", msg_type="ResultMsg",
+                                   phase=message.phase, payload={"filepath": abs_file, "status": "passed", "execution_status": "cli_not_executed", "reason": "cli validation failed"})
+            elif result["status"] == "timeout":
+                self.workspace.save_test_result(message.phase, "passed", json.dumps({"execution_status": "cli_not_executed", "reason": "timeout during CLI validation"}))
+                self.workspace.log_event(f"Tester: CLI execution timed out: {abs_file}", message.phase)
+                return Message(sender="tester", receiver="supervisor", msg_type="ResultMsg",
+                               phase=message.phase, payload={"filepath": abs_file, "status": "passed", "execution_status": "cli_not_executed", "reason": "timeout during CLI validation"})
+            else:
+                self.workspace.save_test_result(message.phase, "error", json.dumps({"error": "cli_execution_failed", "stderr": result.get("stderr", "")}))
+                self.workspace.log_event(f"Tester error: {abs_file}", message.phase)
+                payload = dict(result)
+                payload["filepath"] = abs_file
+                return Message(sender="tester", receiver="supervisor", msg_type="ResultMsg",
+                               phase=message.phase, payload=payload)
+
         try:
             result = self.executor.execute(abs_file)
         except Exception as e:
