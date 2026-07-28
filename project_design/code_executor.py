@@ -7,7 +7,40 @@ class CodeExecutor:
     def __init__(self):
         pass
 
-    def execute(self, filepath: str, working_directory: str = None, timeout_seconds: int = 10) -> dict:
+    @staticmethod
+    def classify_error(stderr: str) -> str:
+        if not stderr:
+            return 'unknown'
+        
+        python_error_markers = [
+            'SyntaxError', 'IndentationError', 'TabError',
+            'ImportError', 'ModuleNotFoundError',
+            'NameError', 'AttributeError',
+            'ZeroDivisionError', 'IndexError', 'KeyError',
+            'RuntimeError'
+        ]
+        
+        cli_markers = [
+            'usage:',
+            'unrecognized arguments',
+            'invalid choice',
+            'the following arguments are required',
+            'expected one argument'
+        ]
+        
+        stderr_lower = stderr.lower()
+        
+        for marker in python_error_markers:
+            if marker.lower() in stderr_lower:
+                return 'python_error'
+        
+        for marker in cli_markers:
+            if marker in stderr_lower:
+                return 'cli_argument_error'
+        
+        return 'unknown'
+
+    def execute(self, filepath: str, working_directory: str = None, timeout_seconds: int = 10, args: list[str] | None = None) -> dict:
         if not isinstance(filepath, str) or not filepath.strip() or not os.path.isfile(filepath):
             return {"status": "error", "return_code": -1, "stdout": "", "stderr": "", "execution_time": 0.0}
 
@@ -17,7 +50,7 @@ class CodeExecutor:
         start_time = time.time()
         try:
             result = subprocess.run(
-                [sys.executable, filepath],
+                [sys.executable, filepath] + (args or []),
                 capture_output=True,
                 text=True,
                 timeout=timeout_seconds,
