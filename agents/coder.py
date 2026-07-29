@@ -125,6 +125,17 @@ class Coder:
             with open(filepath, 'w', encoding='utf-8') as f:
                 f.write(code)
             self.workspace.log_event(f"Coder wrote file: {filepath}", message.phase)
+            try:
+                contracts_path = os.path.join(config.WORKSPACE_DIR, "contracts.json")
+                if os.path.isfile(contracts_path):
+                    with open(contracts_path, 'r', encoding='utf-8') as cf:
+                        contracts = json.load(cf)
+                    if filename in contracts:
+                        contracts[filename]["generated"] = True
+                    with open(contracts_path, 'w', encoding='utf-8') as cf:
+                        json.dump(contracts, cf, indent=2)
+            except Exception:
+                pass
             final_status = "fallback" if code.strip() == FALLBACK_CODE.strip() else "success"
             return Message(sender="coder", receiver="supervisor", msg_type="ResultMsg",
                            phase=message.phase, payload={"filepath": filepath, "status": final_status})
