@@ -112,6 +112,9 @@ class Supervisor:
                     self.modules.append(mod)
 
             self.workspace.log_event("Supervisor received structure from Engineer")
+            from project_design.contract_generator import ContractGenerator
+            ContractGenerator(self.workspace).generate_contracts()
+            self.workspace.log_event("Supervisor generated contracts.json")
             self._send_command("engineer", "generate_prompts", {})
             return True
 
