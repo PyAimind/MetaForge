@@ -27,6 +27,49 @@ def generate_prompt(module_info: dict) -> str:
     else:
         prompt += "### Dependencies\nThis module has no dependencies.\n\n"
 
+    exports = module_info.get("exports", [])
+    exports_text_lines = []
+    for exp in exports:
+        if isinstance(exp, dict):
+            name = exp.get("name", "unknown")
+            kind = exp.get("kind", "function")
+            parameters = exp.get("parameters", [])
+            params_str = ", ".join(f"{p.get('name', '?')}: {p.get('type', '?')}" for p in parameters)
+            returns = exp.get("returns", "None")
+            exports_text_lines.append(f"  - {name}({params_str}) -> {returns}")
+    exports_text = "\n".join(exports_text_lines) if exports_text_lines else "None"
+
+    imports = module_info.get("required_imports", [])
+    imports_text_lines = []
+    for imp in imports:
+        if isinstance(imp, dict):
+            module = imp.get("module", "")
+            names = imp.get("names", [])
+            if isinstance(names, list) and names:
+                names_str = ", ".join(names)
+                imports_text_lines.append(f"  - from {module} import {names_str}")
+    imports_text = "\n".join(imports_text_lines) if imports_text_lines else "None"
+
+    prompt += f"""
+Module Contract (READ-ONLY)
+
+The Engineer has already defined the API contract for this module. You MUST implement exactly what is specified in the contract below. Do NOT create, rename, or modify any public functions or classes. Do NOT add additional exports.
+
+Contract for {filename}:
+
+· Exports: 
+{exports_text}
+· Required imports from other modules: 
+{imports_text}
+
+CRITICAL RULES:
+
+· Implement ONLY the exports listed above. No additional public functions.
+· Use ONLY the imports specified above.
+· Do NOT add if __name__ == "__main__" block.
+
+"""
+
     prompt += """### Implementation Requirements
 - The public API (function signatures, class names) will be provided by the Engineer. Use exactly what is specified in the prompt.
 - Every function must have type hints for parameters and return value.
@@ -72,7 +115,4 @@ Do not repeat the previous mistake.
 Regenerate the module by fixing the identified root cause while preserving the intended functionality.
 """
 
-    print("=== GENERATED PROMPT ===")
-    print(prompt)
-    print("=== END PROMPT ===")
     return prompt
