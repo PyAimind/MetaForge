@@ -1,4 +1,5 @@
 import os
+import json
 import queue
 from communication.message import Message
 from communication.message_channel import MessageChannel
@@ -26,6 +27,18 @@ class Coder:
         self.context_manager = context_manager
         self.knowledge_base = knowledge_base
         self.current_context = {}
+
+    def _load_contract(self, filename: str) -> dict:
+        base = os.path.basename(filename)
+        contracts_path = os.path.join(config.WORKSPACE_DIR, "contracts.json")
+        if not os.path.exists(contracts_path):
+            return {}
+        try:
+            with open(contracts_path, 'r', encoding='utf-8') as f:
+                contracts = json.load(f)
+            return contracts.get(base, {})
+        except (OSError, json.JSONDecodeError, ValueError):
+            return {}
 
     def _build_module_info(self, filename: str, payload: dict, phase: int) -> dict:
         module_info = {
@@ -58,6 +71,9 @@ class Coder:
             except Exception as e:
                 self.workspace.log_event(f"Coder: failed to get knowledge base context for {filename}: {e}", phase)
         module_info["knowledge_base"] = kb_context
+        contract = self._load_contract(filename)
+        module_info["exports"] = contract.get("exports", [])
+        module_info["required_imports"] = contract.get("required_imports", [])
         return module_info
 
     def process_command(self, message: Message) -> Message:
