@@ -13,7 +13,9 @@ DEFAULT_TEMPLATE = {
                     "filename": "main.py",
                     "description": "Main entry point",
                     "dependencies": [],
-                    "purpose": "main_entry"
+                    "purpose": "main_entry",
+                    "exports": [],
+                    "required_imports": []
                 }
             ]
         }
@@ -36,7 +38,14 @@ class StructureDesignerLLM:
             '{"project_name": "...", "description": "...", "phases": [{"phase_number": 1, "name": "...", '
             '"modules": [{"filename": "...", "description": "...", "dependencies": [...], "purpose": "..."}]}]}\n'
             "Filenames must end with .py, be relative, unique, and not contain path separators. "
-            "Dependencies must reference existing filenames. Ensure all fields are non-empty strings."
+            "Dependencies must reference existing filenames. Ensure all fields are non-empty strings.\n"
+            "\n"
+            "For EVERY module, you MUST also include:\n"
+            "\n"
+            '· "exports": a list of public functions/classes this module provides (each with "name", "kind", "parameters", "returns")\n'
+            '· "required_imports": a list of required imports from dependencies (each with "module" and "names")\n'
+            "\n"
+            'Example: {"filename":"greeter.py","exports":[{"name":"greet","kind":"function","parameters":[{"name":"name","type":"str"}],"returns":"str"}],"required_imports":[]}\n'
         )
         messages = [
             {"role": "system", "content": system_prompt},
@@ -114,6 +123,59 @@ class StructureDesignerLLM:
                     purpose = mod.get("purpose")
                     if not isinstance(purpose, str) or not purpose.strip():
                         raise ValueError("purpose must be a non-empty string")
+                    exports = mod.get("exports")
+                    if not isinstance(exports, list):
+                        exports = []
+                    else:
+                        valid_exports = []
+                        for exp in exports:
+                            if not isinstance(exp, dict):
+                                continue
+                            name = exp.get("name")
+                            kind = exp.get("kind")
+                            parameters = exp.get("parameters")
+                            returns = exp.get("returns")
+                            if not isinstance(name, str) or not name.strip():
+                                continue
+                            if kind not in ("function", "class"):
+                                continue
+                            if not isinstance(parameters, list):
+                                continue
+                            valid_params = []
+                            for p in parameters:
+                                if isinstance(p, dict) and isinstance(p.get("name"), str) and isinstance(p.get("type"), str):
+                                    valid_params.append(p)
+                            parameters = valid_params
+                            if not isinstance(returns, str):
+                                returns = "None"
+                            valid_exports.append({
+                                "name": name,
+                                "kind": kind,
+                                "parameters": parameters,
+                                "returns": returns
+                            })
+                        exports = valid_exports
+                    mod["exports"] = exports
+                    required_imports = mod.get("required_imports")
+                    if not isinstance(required_imports, list):
+                        required_imports = []
+                    else:
+                        valid_imports = []
+                        for imp in required_imports:
+                            if not isinstance(imp, dict):
+                                continue
+                            module_name = imp.get("module")
+                            names = imp.get("names")
+                            if not isinstance(module_name, str) or not module_name.strip():
+                                continue
+                            if not isinstance(names, list) or not names or not all(isinstance(n, str) for n in names):
+                                continue
+                            valid_imports.append({
+                                "module": module_name,
+                                "names": names
+                            })
+                        required_imports = valid_imports
+                    mod["required_imports"] = required_imports
             return json.loads(json.dumps(structure))
         except Exception:
             return json.loads(json.dumps(DEFAULT_TEMPLATE))
