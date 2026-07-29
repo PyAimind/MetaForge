@@ -48,6 +48,22 @@ class Supervisor:
         except Exception:
             return {}
 
+    def _dependencies_ready(self, module: dict) -> bool:
+        contracts_path = os.path.join(config.WORKSPACE_DIR, "contracts.json")
+        if not os.path.isfile(contracts_path):
+            return len(module.get("dependencies", [])) == 0
+        try:
+            with open(contracts_path, 'r', encoding='utf-8') as f:
+                contracts = json.load(f)
+        except (OSError, json.JSONDecodeError, ValueError):
+            return False
+        deps = module.get("dependencies", [])
+        for dep in deps:
+            dep_contract = contracts.get(dep)
+            if not isinstance(dep_contract, dict) or not (dep_contract.get("generated") and dep_contract.get("validated")):
+                return False
+        return True
+
     def step(self) -> bool:
         try:
             if self.status in ("idle", "completed", "error"):
@@ -57,6 +73,8 @@ class Supervisor:
                 return self._handle_designing()
             elif self.status == "waiting_for_engineer":
                 return self._handle_waiting_for_engineer()
+            elif self.status == "waiting_for_dependencies":
+                return self._handle_waiting_for_dependencies()
             elif self.status == "waiting_for_coder":
                 return self._handle_waiting_for_coder()
             elif self.status == "waiting_for_tester":
@@ -100,8 +118,33 @@ class Supervisor:
         if "prompts" in msg.payload:
             self.prompts.update(msg.payload["prompts"])
 
-            if self.current_module_index < len(self.modules):
-                mod = self.modules[self.current_module_index]
+            dispatched = False
+            for i in range(self.current_module_index, len(self.modules)):
+                mod = self.modules[i]
+                if self._dependencies_ready(mod):
+                    self.current_module_index = i
+                    prompt = self.prompts.get(mod["filename"], "")
+                    self._send_command("coder", "code", {
+                        "filename": mod["filename"],
+                        "description": mod.get("description", ""),
+                        "dependencies": mod.get("dependencies", []),
+                        "purpose": mod.get("purpose", ""),
+                        "code": prompt
+                    })
+                    self.status = "waiting_for_coder"
+                    dispatched = True
+                    break
+            if not dispatched:
+                self.status = "waiting_for_dependencies"
+            return True
+
+        return True
+
+    def _handle_waiting_for_dependencies(self) -> bool:
+        for i in range(self.current_module_index, len(self.modules)):
+            mod = self.modules[i]
+            if self._dependencies_ready(mod):
+                self.current_module_index = i
                 prompt = self.prompts.get(mod["filename"], "")
                 self._send_command("coder", "code", {
                     "filename": mod["filename"],
@@ -111,10 +154,8 @@ class Supervisor:
                     "code": prompt
                 })
                 self.status = "waiting_for_coder"
-            else:
-                self.status = "completed"
-
-        return True
+                return True
+        return False
 
     def _handle_waiting_for_coder(self) -> bool:
         try:
@@ -153,20 +194,23 @@ class Supervisor:
         status = msg.payload.get("status")
 
         if status == "passed":
+            try:
+                contracts_path = os.path.join(config.WORKSPACE_DIR, "contracts.json")
+                if os.path.isfile(contracts_path):
+                    with open(contracts_path, 'r', encoding='utf-8') as f:
+                        contracts = json.load(f)
+                    mod_key = self.modules[self.current_module_index]["filename"]
+                    if mod_key in contracts:
+                        contracts[mod_key]["validated"] = True
+                    with open(contracts_path, 'w', encoding='utf-8') as f:
+                        json.dump(contracts, f, indent=2)
+            except Exception:
+                pass
             mod_key = self.modules[self.current_module_index]["filename"]
             self.fix_attempts[mod_key] = 0
             self.current_module_index += 1
             if self.current_module_index < len(self.modules):
-                mod = self.modules[self.current_module_index]
-                prompt = self.prompts.get(mod["filename"], "")
-                self._send_command("coder", "code", {
-                    "filename": mod["filename"],
-                    "description": mod.get("description", ""),
-                    "dependencies": mod.get("dependencies", []),
-                    "purpose": mod.get("purpose", ""),
-                    "code": prompt
-                })
-                self.status = "waiting_for_coder"
+                self.status = "waiting_for_dependencies"
             else:
                 self.status = "completed"
                 self.workspace.log_event("Supervisor: project completed successfully")
