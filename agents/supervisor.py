@@ -8,7 +8,7 @@ import config
 from agents.debugger import Debugger
 
 class Supervisor:
-    def __init__(self, channel: MessageChannel, workspace: WorkspaceManager, debugger: Debugger = None):
+    def __init__(self, channel: MessageChannel, workspace: WorkspaceManager, debugger: Debugger = None, api_inspector=None):
         if not isinstance(channel, MessageChannel):
             raise TypeError("channel must be a MessageChannel instance")
         if not isinstance(workspace, WorkspaceManager):
@@ -17,6 +17,7 @@ class Supervisor:
         self.channel = channel
         self.workspace = workspace
         self.debugger = debugger
+        self.api_inspector = api_inspector
 
         self.idea = ""
         self.status = "idle"
@@ -169,6 +170,35 @@ class Supervisor:
         coder_status = msg.payload.get("status")
         if coder_status == "success":
             filepath = msg.payload.get("filepath", "")
+            if self.api_inspector:
+                mod_key = self.modules[self.current_module_index]["filename"]
+                exports = []
+                contracts_path = os.path.join(config.WORKSPACE_DIR, "contracts.json")
+                if os.path.isfile(contracts_path):
+                    try:
+                        with open(contracts_path, 'r', encoding='utf-8') as f:
+                            contracts = json.load(f)
+                        mod_contract = contracts.get(mod_key, {})
+                        exports = mod_contract.get("exports", [])
+                    except Exception:
+                        pass
+                inspect_result = self.api_inspector.inspect(filepath, exports)
+                if not inspect_result["valid"]:
+                    self.workspace.log_event(
+                        f"API Inspector failed for {mod_key}: {inspect_result['errors']}",
+                        self.current_module_index + 1
+                    )
+                    self.fix_attempts[mod_key] = self.fix_attempts.get(mod_key, 0) + 1
+                    if self.fix_attempts[mod_key] > 3:
+                        self.workspace.log_event(f"Supervisor: Max fix attempts reached for {mod_key}", self.current_module_index + 1)
+                        self.status = "error"
+                        return True
+                    self._send_command("engineer", "generate_single_prompt", {
+                        "module_info": self.modules[self.current_module_index],
+                        "is_fix": True
+                    })
+                    self.status = "waiting_for_engineer"
+                    return True
             self._send_command("tester", "test", {"filepath": filepath})
             self.status = "waiting_for_tester"
         elif coder_status == "fallback":
