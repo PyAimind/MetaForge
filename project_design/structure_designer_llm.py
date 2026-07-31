@@ -35,8 +35,7 @@ class StructureDesignerLLM:
             "Design a minimal project structure for the given idea. Do not invent unnecessary modules. "
             "Prefer simplicity over abstraction. Generate only the files required to implement the idea. "
             "Return ONLY a valid JSON object with this exact structure:\n"
-            '{"project_name": "...", "description": "...", "phases": [{"phase_number": 1, "name": "...", '
-            '"modules": [{"filename": "...", "description": "...", "dependencies": [...], "purpose": "..."}]}]}\n'
+            '{"project_name": "...", "description": "...", "phases": [{"phase_number": 1, "name": "Core", "modules": [{"filename": "storage.py", "description": "Handles data persistence", "dependencies": [], "purpose": "storage", "exports": [{"name": "Storage", "kind": "class", "constructor": {"parameters": [{"name": "path", "type": "str"}]}, "methods": [{"name": "save", "kind": "function", "parameters": [{"name": "data", "type": "list"}], "returns": "bool"}]}], "required_imports": []}]}]}\n'
             "Filenames must end with .py, be relative, unique, and not contain path separators. "
             "Dependencies must reference existing filenames. Ensure all fields are non-empty strings.\n"
             "\n"
@@ -141,12 +140,13 @@ class StructureDesignerLLM:
                                 continue
                             if kind not in ("function", "class"):
                                 continue
-                            if not isinstance(parameters, list):
+                            if kind == "function" and not isinstance(parameters, list):
                                 continue
                             valid_params = []
-                            for p in parameters:
-                                if isinstance(p, dict) and isinstance(p.get("name"), str) and isinstance(p.get("type"), str):
-                                    valid_params.append(p)
+                            if isinstance(parameters, list):
+                                for p in parameters:
+                                    if isinstance(p, dict) and isinstance(p.get("name"), str) and isinstance(p.get("type"), str):
+                                        valid_params.append(p)
                             parameters = valid_params
                             if not isinstance(returns, str):
                                 returns = "None"
