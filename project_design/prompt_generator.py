@@ -30,13 +30,34 @@ def generate_prompt(module_info: dict) -> str:
     exports = module_info.get("exports", [])
     exports_text_lines = []
     for exp in exports:
-        if isinstance(exp, dict):
-            name = exp.get("name", "unknown")
-            kind = exp.get("kind", "function")
-            parameters = exp.get("parameters", [])
+        if not isinstance(exp, dict):
+            continue
+        name = exp.get("name", "unknown")
+        kind = exp.get("kind", "function")
+
+        if kind == "function":
+            parameters = exp.get("parameters") or []
             params_str = ", ".join(f"{p.get('name', '?')}: {p.get('type', '?')}" for p in parameters)
-            returns = exp.get("returns", "None")
+            returns = exp.get("returns") or "None"
             exports_text_lines.append(f"  - {name}({params_str}) -> {returns}")
+
+        elif kind == "class":
+            exports_text_lines.append(f"  - class {name}")
+            constructor = exp.get("constructor")
+            if isinstance(constructor, dict):
+                c_params = constructor.get("parameters") or []
+                c_params_str = ", ".join(f"{p.get('name', '?')}: {p.get('type', '?')}" for p in c_params)
+                exports_text_lines.append(f"      Constructor: __init__({c_params_str})")
+            methods = exp.get("methods") or []
+            if isinstance(methods, list):
+                for meth in methods:
+                    if isinstance(meth, dict):
+                        m_name = meth.get("name", "?")
+                        m_params = meth.get("parameters") or []
+                        m_params_str = ", ".join(f"{p.get('name', '?')}: {p.get('type', '?')}" for p in m_params)
+                        m_returns = meth.get("returns") or "None"
+                        exports_text_lines.append(f"      Method: {m_name}({m_params_str}) -> {m_returns}")
+
     exports_text = "\n".join(exports_text_lines) if exports_text_lines else "None"
 
     imports = module_info.get("required_imports", [])
