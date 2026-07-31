@@ -42,8 +42,10 @@ class StructureDesignerLLM:
             "\n"
             "For EVERY module, you MUST also include:\n"
             "\n"
-            '· "exports": a list of public functions/classes this module provides (each with "name", "kind", "parameters", "returns")\n'
-            '· "required_imports": a list of required imports from dependencies (each with "module" and "names")\n'
+            '· "exports": a list of public functions/classes this module provides.\n'
+            '  - For each function, include: "name", "kind" ("function"), "parameters" (list of {name, type}), "returns" (type string or null).\n'
+            '  - For each class, include: "name", "kind" ("class"), "constructor" (object with "parameters" list) when a custom init is required, and "methods" (list of method signatures, each with "name", "kind" ("function"), "parameters", "returns").\n'
+            '· "required_imports": a list of required imports from dependencies (each with "module" and "names").\n'
             "\n"
             'Example: {"filename":"greeter.py","exports":[{"name":"greet","kind":"function","parameters":[{"name":"name","type":"str"}],"returns":"str"}],"required_imports":[]}\n'
         )
@@ -148,12 +150,17 @@ class StructureDesignerLLM:
                             parameters = valid_params
                             if not isinstance(returns, str):
                                 returns = "None"
-                            valid_exports.append({
+                            entry = {
                                 "name": name,
                                 "kind": kind,
                                 "parameters": parameters,
                                 "returns": returns
-                            })
+                            }
+                            if "constructor" in exp and isinstance(exp["constructor"], dict):
+                                entry["constructor"] = exp["constructor"]
+                            if "methods" in exp and isinstance(exp["methods"], list):
+                                entry["methods"] = exp["methods"]
+                            valid_exports.append(entry)
                         exports = valid_exports
                     mod["exports"] = exports
                     required_imports = mod.get("required_imports")
