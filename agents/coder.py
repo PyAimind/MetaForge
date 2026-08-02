@@ -49,7 +49,7 @@ class Coder:
         }
         if self.context_manager is not None:
             try:
-                other_modules = {k: v for k, v in self.context_manager.modules.items() if k != filename}
+                other_modules = self.context_manager.get_context_for_module(filename)
                 context_info = {"current_module": filename, "generated_modules": other_modules}
                 module_info["project_context"] = context_info
             except Exception as e:
@@ -114,7 +114,6 @@ class Coder:
         if self.context_manager is not None:
             try:
                 self.context_manager.add_module(filename, code)
-                self.current_context = {"generated_modules": self.context_manager.modules, "module_count": len(self.context_manager.modules)}
             except Exception as e:
                 self.workspace.log_event(f"Coder: failed to add module to context for {filename}: {e}", message.phase)
 
