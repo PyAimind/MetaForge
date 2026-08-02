@@ -1,35 +1,34 @@
-import ast
+import copy
 
 class ContextManager:
     def __init__(self, output_dir: str):
         self.output_dir = output_dir
         self.modules = {}
 
-    def add_module(self, filename, code):
-        try:
-            tree = ast.parse(code)
-        except SyntaxError:
+    def add_module(self, filename: str, code: str = None):
+        import json
+        import os
+        import config
+
+        contracts_path = os.path.join(config.WORKSPACE_DIR, "contracts.json")
+        if not os.path.isfile(contracts_path):
             return
-        classes = []
-        functions = []
-        imports = []
-        for node in tree.body:
-            if isinstance(node, ast.ClassDef):
-                classes.append(node.name)
-            elif isinstance(node, ast.FunctionDef):
-                functions.append(node.name)
-            elif isinstance(node, ast.Import):
-                for alias in node.names:
-                    imports.append(alias.name)
-            elif isinstance(node, ast.ImportFrom):
-                if node.module:
-                    imports.append(node.module)
-        exports = classes + functions
-        module_info = {
-            "classes": classes,
-            "functions": functions,
-            "imports": imports,
-            "exports": exports,
-            "dependencies": []
+
+        try:
+            with open(contracts_path, 'r', encoding='utf-8') as f:
+                contracts = json.load(f)
+        except (OSError, json.JSONDecodeError, ValueError):
+            return
+
+        basename = os.path.basename(filename)
+        if basename in contracts:
+            self.modules[basename] = contracts[basename]
+
+    def get_context_for_module(self, module_filename: str) -> dict:
+        import os
+        basename = os.path.basename(module_filename)
+        return {
+            name: copy.deepcopy(contract)
+            for name, contract in self.modules.items()
+            if name != basename
         }
-        self.modules[filename] = module_info
