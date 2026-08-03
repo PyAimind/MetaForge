@@ -8,7 +8,7 @@ import config
 from agents.debugger import Debugger
 
 class Supervisor:
-    def __init__(self, channel: MessageChannel, workspace: WorkspaceManager, debugger: Debugger = None, api_inspector=None):
+    def __init__(self, channel: MessageChannel, workspace: WorkspaceManager, debugger: Debugger = None, api_inspector=None, semantic_analyzer=None):
         if not isinstance(channel, MessageChannel):
             raise TypeError("channel must be a MessageChannel instance")
         if not isinstance(workspace, WorkspaceManager):
@@ -18,6 +18,7 @@ class Supervisor:
         self.workspace = workspace
         self.debugger = debugger
         self.api_inspector = api_inspector
+        self.semantic_analyzer = semantic_analyzer
 
         self.idea = ""
         self.status = "idle"
@@ -199,6 +200,40 @@ class Supervisor:
                     })
                     self.status = "waiting_for_engineer"
                     return True
+            if self.semantic_analyzer:
+                mod = self.modules[self.current_module_index]
+                mod_key = mod["filename"]
+                mod_deps = mod.get("dependencies", [])
+                if mod_deps:
+                    contracts_path = os.path.join(config.WORKSPACE_DIR, "contracts.json")
+                    dep_contracts = {}
+                    if os.path.isfile(contracts_path):
+                        try:
+                            with open(contracts_path, 'r', encoding='utf-8') as f:
+                                all_contracts = json.load(f)
+                            for dep in mod_deps:
+                                if dep in all_contracts:
+                                    dep_contracts[dep] = all_contracts[dep]
+                        except Exception:
+                            pass
+                    if dep_contracts:
+                        analysis = self.semantic_analyzer.analyze(filepath, dep_contracts)
+                        if not analysis["valid"]:
+                            self.workspace.log_event(
+                                f"Semantic Analyzer failed for {mod_key}: {analysis['errors']}",
+                                self.current_module_index + 1
+                            )
+                            self.fix_attempts[mod_key] = self.fix_attempts.get(mod_key, 0) + 1
+                            if self.fix_attempts[mod_key] > 3:
+                                self.workspace.log_event(f"Supervisor: Max fix attempts reached for {mod_key}", self.current_module_index + 1)
+                                self.status = "error"
+                                return True
+                            self._send_command("engineer", "generate_single_prompt", {
+                                "module_info": mod,
+                                "is_fix": True
+                            })
+                            self.status = "waiting_for_engineer"
+                            return True
             self._send_command("tester", "test", {"filepath": filepath})
             self.status = "waiting_for_tester"
         elif coder_status == "fallback":
