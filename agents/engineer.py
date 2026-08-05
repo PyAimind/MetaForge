@@ -92,6 +92,19 @@ class Engineer:
         module_info = dict(module_info)
         if "debugger_diagnosis" in payload:
             module_info["debugger_diagnosis"] = payload["debugger_diagnosis"]
+        inspection_errors = payload.get("inspection_errors", [])
+        if inspection_errors:
+            repair_lines = ["\n### API Inspection Failures (modify ONLY the incorrect APIs):"]
+            for err in inspection_errors:
+                repair_lines.append(f"- {err}")
+            repair_lines.append(
+                "\nRewrite ONLY the incorrect APIs listed above. "
+                "Keep every correct implementation unchanged. "
+                "Do not redesign the module, do not rename other symbols, "
+                "and do not add new exports beyond what is required."
+            )
+            diagnosis = module_info.setdefault("debugger_diagnosis", {})
+            diagnosis["suggested_fix"] = "\n".join(repair_lines)
         prompt = generate_prompt(module_info)
         return self._success_response(phase, {"prompts": {"fixed_module.py": prompt}})
 
