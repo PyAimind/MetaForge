@@ -194,9 +194,11 @@ class Supervisor:
                         self.workspace.log_event(f"Supervisor: Max fix attempts reached for {mod_key}", self.current_module_index + 1)
                         self.status = "error"
                         return True
+                    inspection_errors = inspect_result.get("errors", [])
                     self._send_command("engineer", "generate_single_prompt", {
                         "module_info": self.modules[self.current_module_index],
-                        "is_fix": True
+                        "is_fix": True,
+                        "inspection_errors": inspection_errors
                     })
                     self.status = "waiting_for_engineer"
                     return True
