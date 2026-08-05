@@ -16,6 +16,12 @@ from agents.supervisor import Supervisor
 from agents.engineer import Engineer
 from agents.coder import Coder
 from agents.tester import Tester
+try:
+    from agents.semantic_analyzer import SemanticAnalyzer
+    _HAS_SEMANTIC = True
+except Exception:
+    _HAS_SEMANTIC = False
+    print("WARNING: SemanticAnalyzer not available. Cross-module checks disabled.")
 import config
 
 LOOP_DELAY = 0.01
@@ -37,10 +43,28 @@ try:
     wm = WorkspaceManager()
     channel = MessageChannel()
     designer, generator, executor, ctx, kb, debugger = build_dependencies()
-    supervisor = Supervisor(channel, wm, debugger)
     engineer = Engineer(channel, wm, designer, knowledge_base=kb)
     coder = Coder(channel, wm, generator, ctx, knowledge_base=kb)
     tester = Tester(channel, wm, executor)
+
+    api_inspector = None
+    try:
+        from agents.api_inspector import APIInspector
+        api_inspector = APIInspector()
+    except Exception:
+        print("WARNING: APIInspector not available. API checks disabled.")
+
+    semantic_analyzer = None
+    if _HAS_SEMANTIC:
+        try:
+            semantic_analyzer = SemanticAnalyzer()
+        except Exception as e:
+            print(f"WARNING: Could not instantiate SemanticAnalyzer: {e}")
+
+    supervisor = Supervisor(channel, wm, debugger,
+                            api_inspector=api_inspector,
+                            semantic_analyzer=semantic_analyzer)
+
     agents = [engineer, coder, tester]
 
     project_idea = input("Enter your project idea: ").strip()
