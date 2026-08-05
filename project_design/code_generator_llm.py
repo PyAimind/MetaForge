@@ -1,4 +1,5 @@
 import os
+import json
 from llm_provider import LLMProvider
 
 FALLBACK_CODE = "def placeholder():\n    pass"
@@ -40,24 +41,84 @@ class CodeGeneratorLLM:
             "5. The code must be valid, compilable Python with no syntax errors.\n"
             "6. Return ONLY the raw Python code. No comments, no markdown fences, no explanations.\n"
         )
+        exports = module_info.get("exports", [])
+        required_imports = module_info.get("required_imports", [])
         user_message = (
             f"Filename: {filename}\n"
             f"Description: {description}\n"
             f"Purpose: {purpose}\n"
-            f"Dependencies: {', '.join(dependencies) if dependencies else 'None'}\n"
-            "Write the module."
+            f"Dependencies: {', '.join(dependencies) if dependencies else 'None'}\n\n"
+            "Module Contract:\n"
+            f"Exports:\n{json.dumps(exports, indent=2)}\n\n"
+            f"Required Imports:\n{json.dumps(required_imports, indent=2)}\n\n"
+            "Write the module.\n"
+            "FORBIDDEN PATTERNS – API VALIDATION WILL FAIL if you do any of the following:\n"
+            "- RENAMING a required export. Export names are immutable API identifiers. If the contract says 'greet', the file MUST contain exactly `def greet(...)`. `def generate_greeting(...)` is invalid.\n"
+            "- INVENTING aliases or wrapper functions for required exports.\n"
+            "- ADDING `if __name__ == '__main__':` blocks. Generated modules must be importable libraries only.\n"
+            "- ADDING extra public symbols not present in the contract.\n"
+            "- CHANGING a function into a class or a class into functions unless the contract explicitly requires it.\n"
+            "\n"
         )
+        project_context = module_info.get("project_context", {})
+        generated_modules = project_context.get("generated_modules", {})
+        if generated_modules and dependencies:
+            context_lines = []
+            for mod_name, contract in generated_modules.items():
+                if mod_name not in dependencies:
+                    continue
+                exp_list = contract.get("exports", [])
+                if not exp_list:
+                    continue
+                if not context_lines:
+                    context_lines.append("\n### Already‑generated modules (use these exact APIs)")
+                context_lines.append(f"\n  Module: {mod_name}")
+                for exp in exp_list:
+                    name = exp.get("name", "?")
+                    kind = exp.get("kind", "function")
+                    if kind == "function":
+                        params = exp.get("parameters") or []
+                        params_str = ", ".join(
+                            f"{p.get('name','?')}: {p.get('type','?')}"
+                            for p in params if isinstance(p, dict)
+                        )
+                        returns = exp.get("returns") or "None"
+                        context_lines.append(f"    - {name}({params_str}) -> {returns}")
+                    elif kind == "class":
+                        context_lines.append(f"    - class {name}")
+                        constructor = exp.get("constructor")
+                        if isinstance(constructor, dict):
+                            c_params = constructor.get("parameters") or []
+                            c_params_str = ", ".join(
+                                f"{p.get('name','?')}: {p.get('type','?')}"
+                                for p in c_params if isinstance(p, dict)
+                            )
+                            context_lines.append(f"        Constructor: __init__({c_params_str})")
+                        methods = exp.get("methods") or []
+                        for meth in methods:
+                            if isinstance(meth, dict):
+                                m_name = meth.get("name", "?")
+                                m_params = meth.get("parameters") or []
+                                m_params_str = ", ".join(
+                                    f"{p.get('name','?')}: {p.get('type','?')}"
+                                    for p in m_params if isinstance(p, dict)
+                                )
+                                m_returns = meth.get("returns") or "None"
+                                context_lines.append(f"        Method: {m_name}({m_params_str}) -> {m_returns}")
+            if context_lines:
+                user_message += "\n".join(context_lines)
+                user_message += "\n"
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message}
         ]
         try:
-            raw = self.provider.generate(messages, model=model, temperature=0.2)
+            raw = self.provider.generate(messages, model=model, max_tokens=2000, temperature=0.2)
             if not isinstance(raw, str):
                 print("CodeGeneratorLLM: invalid response from LLM, using fallback")
                 return FALLBACK_CODE
-        except Exception:
-            print("CodeGeneratorLLM: LLM call failed, using fallback")
+        except Exception as e:
+            print(f"CodeGeneratorLLM: LLM call failed: {type(e).__name__}: {e}")
             return FALLBACK_CODE
         code = raw.strip()
         lines = code.split('\n')
@@ -71,7 +132,7 @@ class CodeGeneratorLLM:
             return FALLBACK_CODE
         try:
             compile(code, filename, 'exec')
-            if len(code.strip()) < 50:
+            if len(code.strip()) < 10:
                 print("CodeGeneratorLLM: generated code too short, using fallback")
                 return FALLBACK_CODE
             return code
