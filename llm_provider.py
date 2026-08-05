@@ -13,6 +13,7 @@ class LLMProvider:
         self.max_requests: int = int(os.getenv("MAX_LLM_REQUESTS", 40))
         self.base_url = os.getenv("LLM_BASE_URL", "https://api.deepseek.com/v1/chat/completions")
         self.request_count = 0
+        self.timeout = 60
         self.session: requests.Session = requests.Session()
 
     def generate(self, messages: list[dict], model: str = "deepseek-chat", max_tokens: int = 2000, temperature: float = 0.7) -> str:
@@ -40,18 +41,21 @@ class LLMProvider:
             "temperature": temperature
         }
 
-        for attempt in range(3):
-            try:
-                resp = self.session.post(self.base_url, json=payload, headers=headers, timeout=30)
-                if resp.status_code != 200:
-                    raise ConnectionError(f"DeepSeek API returned status {resp.status_code}: {resp.text}")
-                data = resp.json()
-                content = data["choices"][0]["message"]["content"]
-                return content
-            except Exception:
-                if attempt == 2:
-                    raise
-                time.sleep(1)
+        resp = self.session.post(self.base_url, json=payload, headers=headers, timeout=(10, self.timeout))
+
+        if resp.status_code != 200:
+            raise ConnectionError(f"DeepSeek API returned status {resp.status_code}: {resp.text}")
+
+        try:
+            data = resp.json()
+        except json.JSONDecodeError:
+            raise ValueError("Invalid JSON response from DeepSeek API.")
+
+        try:
+            content = data["choices"][0]["message"]["content"]
+            return content
+        except (KeyError, IndexError, TypeError):
+            raise ValueError("Invalid response structure from DeepSeek API.")
 
     def get_usage(self) -> dict:
         return {
