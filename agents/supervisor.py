@@ -6,6 +6,7 @@ from communication.message_channel import MessageChannel
 from workspace.workspace_manager import WorkspaceManager
 import config
 from agents.debugger import Debugger
+from project_design.repair_context import RepairContext
 
 class Supervisor:
     def __init__(self, channel: MessageChannel, workspace: WorkspaceManager, debugger: Debugger = None, api_inspector=None, semantic_analyzer=None):
@@ -49,6 +50,31 @@ class Supervisor:
             return self.debugger.analyze_error(filepath, stderr, stdout, return_code)
         except Exception:
             return {}
+
+    def _build_repair_context(self, module_info: dict, filepath: str = "") -> "RepairContext":
+        from project_design.repair_context import RepairContext
+
+        mod_key = module_info.get("filename", "unknown.py")
+        ctx = RepairContext(mod_key, filepath)
+        ctx.previous_attempts = self.fix_attempts.get(mod_key, 0)
+
+        if filepath and os.path.isfile(filepath):
+            try:
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    ctx.current_code = f.read()
+            except Exception:
+                pass
+
+        contracts_path = os.path.join(config.WORKSPACE_DIR, "contracts.json")
+        if os.path.isfile(contracts_path):
+            try:
+                with open(contracts_path, 'r', encoding='utf-8') as f:
+                    contracts = json.load(f)
+                ctx.contract = contracts.get(mod_key)
+            except Exception:
+                pass
+
+        return ctx
 
     def _dependencies_ready(self, module: dict) -> bool:
         contracts_path = os.path.join(config.WORKSPACE_DIR, "contracts.json")
@@ -121,7 +147,23 @@ class Supervisor:
             return True
 
         if "prompts" in msg.payload:
-            self.prompts.update(msg.payload["prompts"])
+            prompts = msg.payload["prompts"]
+            self.prompts.update(prompts)
+
+            if "fixed_module.py" in prompts:
+                mod = self.modules[self.current_module_index]
+                filename = mod["filename"]
+                prompt_text = prompts["fixed_module.py"]
+                self.prompts[filename] = prompt_text
+                self._send_command("coder", "code", {
+                    "filename": filename,
+                    "description": mod.get("description", ""),
+                    "dependencies": mod.get("dependencies", []),
+                    "purpose": mod.get("purpose", ""),
+                    "code": prompt_text
+                })
+                self.status = "waiting_for_coder"
+                return True
 
             dispatched = False
             for i in range(self.current_module_index, len(self.modules)):
@@ -194,11 +236,12 @@ class Supervisor:
                         self.workspace.log_event(f"Supervisor: Max fix attempts reached for {mod_key}", self.current_module_index + 1)
                         self.status = "error"
                         return True
-                    inspection_errors = inspect_result.get("errors", [])
+                    ctx = self._build_repair_context(self.modules[self.current_module_index], filepath)
+                    ctx.api_errors = [str(e) for e in inspect_result.get("errors", [])]
                     self._send_command("engineer", "generate_single_prompt", {
                         "module_info": self.modules[self.current_module_index],
                         "is_fix": True,
-                        "inspection_errors": inspection_errors
+                        "repair_context": vars(ctx)
                     })
                     self.status = "waiting_for_engineer"
                     return True
@@ -230,9 +273,12 @@ class Supervisor:
                                 self.workspace.log_event(f"Supervisor: Max fix attempts reached for {mod_key}", self.current_module_index + 1)
                                 self.status = "error"
                                 return True
+                            ctx = self._build_repair_context(mod, filepath)
+                            ctx.semantic_errors = [str(e) for e in analysis.get("errors", [])]
                             self._send_command("engineer", "generate_single_prompt", {
                                 "module_info": mod,
-                                "is_fix": True
+                                "is_fix": True,
+                                "repair_context": vars(ctx)
                             })
                             self.status = "waiting_for_engineer"
                             return True
@@ -304,10 +350,18 @@ class Supervisor:
                 stdout = msg.payload.get("stdout", "")
                 return_code = msg.payload.get("return_code")
 
+                diagnosis = None
                 if return_code is not None:
                     diagnosis = self._analyze_failure(filepath, stderr, stdout, return_code)
                     if diagnosis:
                         payload["debugger_diagnosis"] = diagnosis
+
+                ctx = self._build_repair_context(mod, filepath)
+                ctx.runtime_error = f"stderr: {stderr}, stdout: {stdout}, return_code: {return_code}"
+                if diagnosis:
+                    ctx.debugger_analysis = diagnosis
+                payload["repair_context"] = vars(ctx)
+
                 self._send_command("engineer", "generate_single_prompt", payload)
                 self.status = "waiting_for_engineer"
 
