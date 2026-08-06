@@ -31,6 +31,50 @@ class CodeGeneratorLLM:
         if not isinstance(purpose, str):
             purpose = ""
         model = os.getenv("LLM_CODER_MODEL", "deepseek/deepseek-chat-v3.1")
+
+        if module_info.get("repair_prompt"):
+            system_prompt = (
+                "You are an expert Python developer. Write clean, modern Python code for a single module.\n\n"
+                "CRITICAL RULES FOR TESTABILITY:\n\n"
+                "1. The generated Python file MUST run from command line and exit without waiting for user input.\n"
+                "2. DO NOT use the input() function.\n"
+                "3. If you need to demonstrate behavior, use a if __name__ == \"__main__\": block with hardcoded sample data.\n"
+                "4. Only call methods that actually exist on the imported modules. Check the dependency list.\n"
+                "5. The code must be valid, compilable Python with no syntax errors.\n"
+                "6. Return ONLY the raw Python code. No comments, no markdown fences, no explanations.\n"
+            )
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": module_info["repair_prompt"]}
+            ]
+            try:
+                raw = self.provider.generate(messages, model=model, max_tokens=2000, temperature=0.2)
+                if not isinstance(raw, str):
+                    print("CodeGeneratorLLM: invalid response from LLM, using fallback")
+                    return FALLBACK_CODE
+            except Exception as e:
+                print(f"CodeGeneratorLLM: LLM call failed: {type(e).__name__}: {e}")
+                return FALLBACK_CODE
+            code = raw.strip()
+            lines = code.split('\n')
+            if lines and lines[0].strip().startswith('```'):
+                lines = lines[1:]
+            if lines and lines[-1].strip() == '```':
+                lines = lines[:-1]
+            code = '\n'.join(lines).strip()
+            if not code:
+                print("CodeGeneratorLLM: empty code from LLM, using fallback")
+                return FALLBACK_CODE
+            try:
+                compile(code, filename, 'exec')
+                if len(code.strip()) < 10:
+                    print("CodeGeneratorLLM: generated code too short, using fallback")
+                    return FALLBACK_CODE
+                return code
+            except Exception:
+                print("CodeGeneratorLLM: LLM code invalid, using fallback")
+                return FALLBACK_CODE
+
         system_prompt = (
             "You are an expert Python developer. Write clean, modern Python code for a single module.\n\n"
             "CRITICAL RULES FOR TESTABILITY:\n\n"

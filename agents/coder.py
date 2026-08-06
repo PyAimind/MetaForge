@@ -76,12 +76,97 @@ class Coder:
         module_info["required_imports"] = contract.get("required_imports", [])
         return module_info
 
+    def _build_repair_prompt(self, repair_context: dict) -> str:
+        ctx = repair_context
+        lines = []
+        lines.append("REPAIR TASK")
+        lines.append("")
+        lines.append("CURRENT CODE (must be modified minimally):")
+        lines.append("```")
+        lines.append(ctx.get("current_code", ""))
+        lines.append("```")
+        lines.append("")
+        lines.append("ERRORS TO FIX:")
+        for err in ctx.get("api_errors", []):
+            lines.append(f"- [API] {err}")
+        for err in ctx.get("semantic_errors", []):
+            lines.append(f"- [SEMANTIC] {err}")
+        if ctx.get("runtime_error"):
+            lines.append(f"- [RUNTIME] {ctx['runtime_error']}")
+        if ctx.get("debugger_analysis"):
+            d = ctx["debugger_analysis"]
+            lines.append(f"- [DEBUGGER] {d.get('diagnosis','')}: {d.get('suggested_fix','')}")
+        lines.append("")
+        lines.append("INSTRUCTION:")
+        lines.append("Modify the CURRENT CODE above ONLY to fix the reported errors.")
+        lines.append("Keep every correct line unchanged.")
+        lines.append("Do NOT rewrite the whole module.")
+        lines.append("Return the FULL corrected code.")
+        return "\n".join(lines)
+
     def process_command(self, message: Message) -> Message:
         if message.msg_type != "CommandMsg":
             return Message(sender="coder", receiver="supervisor", msg_type="ResultMsg",
                            phase=message.phase, payload={"status": "error", "reason": "Invalid message type"})
 
         payload = message.payload
+
+        if payload.get("is_fix") and payload.get("repair_context"):
+            repair_context = payload["repair_context"]
+            filename = repair_context.get("module_name", "untitled.py")
+            if not isinstance(filename, str) or not filename.strip():
+                filename = "untitled.py"
+            else:
+                filename = os.path.basename(filename.strip())
+            if not filename.endswith(".py"):
+                filename += ".py"
+
+            module_info = {
+                "filename": filename,
+                "exports": repair_context.get("contract", {}).get("exports", []),
+                "repair_prompt": self._build_repair_prompt(repair_context)
+            }
+            try:
+                code = self.generator.generate(module_info)
+            except Exception as e:
+                self.workspace.log_event(f"Coder repair generator failed for {filename}: {e}", message.phase)
+                code = FALLBACK_CODE
+
+            if code == FALLBACK_CODE:
+                self.workspace.log_event(f"Coder used FALLBACK for: {filename}", message.phase)
+
+            if self.context_manager is not None:
+                try:
+                    self.context_manager.add_module(filename, code)
+                except Exception as e:
+                    self.workspace.log_event(f"Coder: failed to add module to context for {filename}: {e}", message.phase)
+
+            os.makedirs(config.OUTPUT_DIR, exist_ok=True)
+            filepath = os.path.join(config.OUTPUT_DIR, filename)
+
+            try:
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    f.write(code)
+                self.workspace.log_event(f"Coder wrote file: {filepath}", message.phase)
+                try:
+                    contracts_path = os.path.join(config.WORKSPACE_DIR, "contracts.json")
+                    if os.path.isfile(contracts_path):
+                        with open(contracts_path, 'r', encoding='utf-8') as cf:
+                            contracts = json.load(cf)
+                        if filename in contracts:
+                            contracts[filename]["generated"] = True
+                        with open(contracts_path, 'w', encoding='utf-8') as cf:
+                            json.dump(contracts, cf, indent=2)
+                except Exception:
+                    pass
+                final_status = "fallback" if code.strip() == FALLBACK_CODE.strip() else "success"
+                return Message(sender="coder", receiver="supervisor", msg_type="ResultMsg",
+                               phase=message.phase, payload={"filepath": filepath, "status": final_status})
+            except Exception as e:
+                self.workspace.log_event(f"Coder error: {e}", message.phase)
+                return Message(sender="coder", receiver="supervisor", msg_type="ResultMsg",
+                               phase=message.phase, payload={"status": "error", "reason": f"{type(e).__name__}: {str(e)}"})
+
         filename = payload.get("filename", "untitled.py")
         if not isinstance(filename, str) or not filename.strip():
             filename = "untitled.py"
