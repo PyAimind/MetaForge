@@ -105,6 +105,54 @@ class Engineer:
             )
             diagnosis = module_info.setdefault("debugger_diagnosis", {})
             diagnosis["suggested_fix"] = "\n".join(repair_lines)
+        repair_context = payload.get("repair_context")
+        if repair_context:
+            ctx = repair_context
+            lines = []
+            lines.append(f"REPAIR TARGET: {ctx.get('module_name', 'unknown')} (attempt {ctx.get('previous_attempts', 0) + 1})")
+            lines.append("")
+            lines.append("CURRENT CODE (must be modified minimally):")
+            lines.append("```")
+            lines.append(ctx.get('current_code', ''))
+            lines.append("```")
+            lines.append("")
+            lines.append("CONTRACT:")
+            lines.append(json.dumps(ctx.get('contract'), indent=2))
+            lines.append("")
+            lines.append("API ERRORS:")
+            api_errors = ctx.get('api_errors', [])
+            if api_errors:
+                for err in api_errors:
+                    lines.append(f"- {err}")
+            else:
+                lines.append("None")
+            lines.append("")
+            lines.append("SEMANTIC ERRORS:")
+            semantic_errors = ctx.get('semantic_errors', [])
+            if semantic_errors:
+                for err in semantic_errors:
+                    lines.append(f"- {err}")
+            else:
+                lines.append("None")
+            lines.append("")
+            lines.append("RUNTIME ERROR:")
+            lines.append(ctx.get('runtime_error', 'None'))
+            lines.append("")
+            lines.append("DEBUGGER ANALYSIS:")
+            debugger = ctx.get('debugger_analysis')
+            if debugger:
+                lines.append(json.dumps(debugger, indent=2))
+            else:
+                lines.append("None")
+            lines.append("")
+            lines.append("INSTRUCTION:")
+            lines.append("Modify the existing code above ONLY to fix the reported failures.")
+            lines.append("Keep all correct code unchanged.")
+            lines.append("Do NOT rewrite the whole module.")
+            lines.append("Do NOT rename functions or classes unless required by the contract.")
+            repair_prompt = "\n".join(lines)
+            diagnosis = module_info.setdefault("debugger_diagnosis", {})
+            diagnosis["suggested_fix"] = repair_prompt
         prompt = generate_prompt(module_info)
         return self._success_response(phase, {"prompts": {"fixed_module.py": prompt}})
 
