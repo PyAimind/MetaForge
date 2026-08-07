@@ -155,13 +155,18 @@ class Supervisor:
                 filename = mod["filename"]
                 prompt_text = prompts["fixed_module.py"]
                 self.prompts[filename] = prompt_text
-                self._send_command("coder", "code", {
+                coder_payload = {
                     "filename": filename,
                     "description": mod.get("description", ""),
                     "dependencies": mod.get("dependencies", []),
                     "purpose": mod.get("purpose", ""),
                     "code": prompt_text
-                })
+                }
+                is_repair = msg.payload.get("is_fix", False) or "REPAIR TARGET:" in prompt_text
+                if is_repair:
+                    coder_payload["is_fix"] = True
+                    coder_payload["repair_context"] = msg.payload.get("repair_context", {})
+                self._send_command("coder", "code", coder_payload)
                 self.status = "waiting_for_coder"
                 return True
 
@@ -171,13 +176,18 @@ class Supervisor:
                 if self._dependencies_ready(mod):
                     self.current_module_index = i
                     prompt = self.prompts.get(mod["filename"], "")
-                    self._send_command("coder", "code", {
+                    coder_payload = {
                         "filename": mod["filename"],
                         "description": mod.get("description", ""),
                         "dependencies": mod.get("dependencies", []),
                         "purpose": mod.get("purpose", ""),
                         "code": prompt
-                    })
+                    }
+                    is_repair = msg.payload.get("is_fix", False) or "REPAIR TARGET:" in prompt
+                    if is_repair:
+                        coder_payload["is_fix"] = True
+                        coder_payload["repair_context"] = msg.payload.get("repair_context", {})
+                    self._send_command("coder", "code", coder_payload)
                     self.status = "waiting_for_coder"
                     dispatched = True
                     break
