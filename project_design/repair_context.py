@@ -27,11 +27,17 @@ class RepairContext:
         if self.api_errors:
             lines.append("API Errors:")
             for err in self.api_errors:
-                lines.append(f"  - {err}")
+                if err is None:
+                    lines.append("  - <missing error>")
+                else:
+                    lines.append(f"  - {str(err)}")
         if self.semantic_errors:
             lines.append("Semantic Errors:")
             for err in self.semantic_errors:
-                lines.append(f"  - {err}")
+                if err is None:
+                    lines.append("  - <missing error>")
+                else:
+                    lines.append(f"  - {str(err)}")
         if self.runtime_error is not None:
             lines.append("Runtime Error:")
             lines.append(f"  {self.runtime_error}")
