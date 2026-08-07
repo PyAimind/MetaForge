@@ -123,6 +123,7 @@ class Coder:
 
             module_info = {
                 "filename": filename,
+                "description": repair_context.get("module_name", "Repair existing module"),
                 "exports": repair_context.get("contract", {}).get("exports", []),
                 "repair_prompt": self._build_repair_prompt(repair_context)
             }
