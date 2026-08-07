@@ -96,7 +96,8 @@ class Engineer:
         if inspection_errors:
             repair_lines = ["\n### API Inspection Failures (modify ONLY the incorrect APIs):"]
             for err in inspection_errors:
-                repair_lines.append(f"- {err}")
+                if err is not None:
+                    repair_lines.append(f"- {str(err)}")
             repair_lines.append(
                 "\nRewrite ONLY the incorrect APIs listed above. "
                 "Keep every correct implementation unchanged. "
@@ -113,7 +114,7 @@ class Engineer:
             lines.append("")
             lines.append("CURRENT CODE (must be modified minimally):")
             lines.append("```")
-            lines.append(ctx.get('current_code', ''))
+            lines.append(ctx.get('current_code') or '')
             lines.append("```")
             lines.append("")
             lines.append("CONTRACT:")
@@ -123,7 +124,8 @@ class Engineer:
             api_errors = ctx.get('api_errors', [])
             if api_errors:
                 for err in api_errors:
-                    lines.append(f"- {err}")
+                    if err is not None:
+                        lines.append(f"- {str(err)}")
             else:
                 lines.append("None")
             lines.append("")
@@ -131,12 +133,13 @@ class Engineer:
             semantic_errors = ctx.get('semantic_errors', [])
             if semantic_errors:
                 for err in semantic_errors:
-                    lines.append(f"- {err}")
+                    if err is not None:
+                        lines.append(f"- {str(err)}")
             else:
                 lines.append("None")
             lines.append("")
             lines.append("RUNTIME ERROR:")
-            lines.append(ctx.get('runtime_error', 'None'))
+            lines.append(ctx.get('runtime_error') or 'None')
             lines.append("")
             lines.append("DEBUGGER ANALYSIS:")
             debugger = ctx.get('debugger_analysis')
@@ -153,8 +156,23 @@ class Engineer:
             repair_prompt = "\n".join(lines)
             diagnosis = module_info.setdefault("debugger_diagnosis", {})
             diagnosis["suggested_fix"] = repair_prompt
+            filename = module_info.get("filename") or "fixed_module.py"
+            response_payload = {"prompts": {filename: repair_prompt}}
+            if payload.get("is_fix"):
+                response_payload["is_fix"] = True
+                response_payload["repair_context"] = payload.get("repair_context", {})
+            return self._success_response(phase, response_payload)
+
+        for key in ("exports", "required_imports", "dependencies", "parameters"):
+            if key in module_info and isinstance(module_info[key], list):
+                module_info[key] = [item for item in module_info[key] if item is not None]
+
         prompt = generate_prompt(module_info)
-        return self._success_response(phase, {"prompts": {"fixed_module.py": prompt}})
+        response_payload = {"prompts": {"fixed_module.py": prompt}}
+        if payload.get("is_fix"):
+            response_payload["is_fix"] = True
+            response_payload["repair_context"] = payload.get("repair_context", {})
+        return self._success_response(phase, response_payload)
 
     def step(self) -> bool:
         try:
