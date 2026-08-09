@@ -51,12 +51,14 @@ class Supervisor:
         except Exception:
             return {}
 
-    def _build_repair_context(self, module_info: dict, filepath: str = "") -> "RepairContext":
+    def _build_repair_context(self, module_info: dict, filepath: str = "", include_all_modules: bool = False) -> "RepairContext":
         from project_design.repair_context import RepairContext
 
         mod_key = module_info.get("filename", "unknown.py")
         ctx = RepairContext(mod_key, filepath)
         ctx.previous_attempts = self.fix_attempts.get(mod_key, 0)
+        if not isinstance(ctx.api_errors, list):
+            ctx.api_errors = []
 
         if filepath and os.path.isfile(filepath):
             try:
@@ -66,13 +68,34 @@ class Supervisor:
                 pass
 
         contracts_path = os.path.join(config.WORKSPACE_DIR, "contracts.json")
+        all_contracts = {}
         if os.path.isfile(contracts_path):
             try:
                 with open(contracts_path, 'r', encoding='utf-8') as f:
-                    contracts = json.load(f)
-                ctx.contract = contracts.get(mod_key)
+                    all_contracts = json.load(f)
             except Exception:
                 pass
+
+        ctx.contract = all_contracts.get(mod_key)
+
+        if include_all_modules:
+            ctx.all_modules = []
+            for name, contract in all_contracts.items():
+                if not isinstance(contract, dict) or not contract.get("generated", False):
+                    continue
+                source_code = None
+                module_path = os.path.join(config.OUTPUT_DIR, name)
+                if os.path.isfile(module_path):
+                    try:
+                        with open(module_path, 'r', encoding='utf-8') as f:
+                            source_code = f.read()
+                    except Exception:
+                        pass
+                ctx.all_modules.append({
+                    "module_name": name,
+                    "source_code": source_code,
+                    "contract": contract
+                })
 
         return ctx
 
@@ -366,10 +389,16 @@ class Supervisor:
                     if diagnosis:
                         payload["debugger_diagnosis"] = diagnosis
 
-                ctx = self._build_repair_context(mod, filepath)
+                ctx = self._build_repair_context(mod, filepath, include_all_modules=(status == "runtime_failure"))
                 ctx.runtime_error = f"stderr: {stderr}, stdout: {stdout}, return_code: {return_code}"
                 if diagnosis:
                     ctx.debugger_analysis = diagnosis
+                if status == "runtime_failure":
+                    ctx.api_errors.append(
+                        "Product acceptance test failed. The failure may be caused by an "
+                        "interface or contract mismatch between multiple modules, not only "
+                        "this file. Inspect all related modules to identify the root cause."
+                    )
                 payload["repair_context"] = vars(ctx)
 
                 self._send_command("engineer", "generate_single_prompt", payload)
