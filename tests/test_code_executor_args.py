@@ -1,29 +1,31 @@
-import sys
 import os
+import sys
 import tempfile
+
+# افزودن ریشهٔ پروژه به مسیر جستجوی پایتون
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from project_design.code_executor import CodeExecutor
 
-def write_file(tmpdir, filename, content):
-    path = os.path.join(tmpdir, filename)
-    with open(path, 'w') as f:
-        f.write(content)
-    return path
-
 with tempfile.TemporaryDirectory() as tmp:
+    filepath = os.path.join(tmp, "args_test.py")
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(
+            "import sys\n"
+            "if len(sys.argv) > 1:\n"
+            "    print(sys.argv[1])\n"
+            "else:\n"
+            "    print('no args')\n"
+        )
+
     executor = CodeExecutor()
-    p = write_file(tmp, "hello.py", "print('hello')")
-    r = executor.execute(p)
-    assert r["status"] == "passed" and "hello" in r["stdout"]
 
-    p = write_file(tmp, "cli.py", "import sys\nif '--help' in sys.argv:\n    print('Usage: cli.py [--help]')\n    sys.exit(0)\n")
-    r = executor.execute(p, args=["--help"])
-    assert r["status"] == "passed" and "Usage" in r["stdout"]
+    result_with_args = executor.execute(filepath, args=["hello"])
+    assert result_with_args["return_code"] == 0
+    assert result_with_args["stdout"].strip() == "hello"
 
-    p = write_file(tmp, "argv.py", "import sys; print(len(sys.argv))")
-    r = executor.execute(p)
-    assert "1" in r["stdout"]
-    r = executor.execute(p, args=["A", "B"])
-    assert "3" in r["stdout"]
+    result_without_args = executor.execute(filepath)
+    assert result_without_args["return_code"] == 0
+    assert result_without_args["stdout"].strip() == "no args"
 
-    print("TEST PASSED")
+    print("PHASE 1 CODE EXECUTOR ARGS PASSED")
