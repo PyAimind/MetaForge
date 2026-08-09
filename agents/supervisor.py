@@ -341,7 +341,7 @@ class Supervisor:
                 self.status = "completed"
                 self.workspace.log_event("Supervisor: project completed successfully")
 
-        elif status in ("failed", "timeout"):
+        elif status in ("failed", "timeout", "runtime_failure"):
             self.workspace.log_event(f"Tester {status} for module index {self.current_module_index}")
             if self.current_module_index < len(self.modules):
                 mod = self.modules[self.current_module_index]

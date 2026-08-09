@@ -28,6 +28,42 @@ class Tester:
             payload={"status": "error", "reason": reason}
         )
 
+    def _run_acceptance_test(self, cli_file: str) -> dict:
+        res = self.executor.execute(cli_file, args=["--help"], timeout_seconds=10)
+        if res["return_code"] != 0:
+            return {"status": "runtime_failure", "reason": f"help returned {res['return_code']}: {res['stderr']}"}
+
+        res = self.executor.execute(cli_file, args=["add", "Test todo"], timeout_seconds=10)
+        if res["return_code"] != 0:
+            return {"status": "runtime_failure", "reason": f"add returned {res['return_code']}: {res['stderr']}"}
+
+        res = self.executor.execute(cli_file, args=["list"], timeout_seconds=10)
+        if res["return_code"] != 0:
+            return {"status": "runtime_failure", "reason": f"list returned {res['return_code']}: {res['stderr']}"}
+        if "Test todo" not in res["stdout"]:
+            return {"status": "runtime_failure", "reason": f"list did not contain 'Test todo': {res['stdout']}"}
+
+        todo_id = None
+        for line in res["stdout"].splitlines():
+            stripped = line.strip()
+            if stripped and stripped[0].isdigit():
+                todo_id = stripped.split()[0]
+                break
+        if todo_id is None:
+            return {"status": "runtime_failure", "reason": "Could not find a task ID in list output"}
+
+        res = self.executor.execute(cli_file, args=["remove", todo_id], timeout_seconds=10)
+        if res["return_code"] != 0:
+            return {"status": "runtime_failure", "reason": f"remove {todo_id} returned {res['return_code']}: {res['stderr']}"}
+
+        res = self.executor.execute(cli_file, args=["list"], timeout_seconds=10)
+        if res["return_code"] != 0:
+            return {"status": "runtime_failure", "reason": f"list after remove returned {res['return_code']}: {res['stderr']}"}
+        if todo_id in res["stdout"]:
+            return {"status": "runtime_failure", "reason": f"ID {todo_id} still present after remove"}
+
+        return {"status": "accepted"}
+
     def process_command(self, message: Message) -> Message:
         if message.msg_type != "CommandMsg":
             return self._error_response(message.phase, "Invalid message type")
@@ -52,16 +88,28 @@ class Tester:
         except Exception as e:
             return self._error_response(message.phase, f"Syntax error in {abs_file}: {str(e)}")
 
-        cli_keywords = ("argparse", "input(", "sys.argv")
+        cli_keywords = ("argparse", "sys.argv")
         if any(kw in content for kw in cli_keywords):
             result = self.executor.execute(abs_file, timeout_seconds=5, args=["--help"])
             if not isinstance(result, dict) or "status" not in result:
                 return self._error_response(message.phase, "Executor returned an invalid result for CLI testing")
             if result["status"] == "passed":
-                self.workspace.save_test_result(message.phase, "passed", json.dumps({"execution_status": "cli_help_tested"}))
-                self.workspace.log_event(f"Tester successfully tested CLI with --help: {abs_file}", message.phase)
-                return Message(sender="tester", receiver="supervisor", msg_type="ResultMsg",
-                               phase=message.phase, payload={"filepath": abs_file, "status": "passed", "execution_status": "cli_help_tested"})
+                if "add_argument" in content:
+                    acceptance = self._run_acceptance_test(abs_file)
+                    if acceptance["status"] == "runtime_failure":
+                        self.workspace.save_test_result(message.phase, "runtime_failure", json.dumps(acceptance))
+                        self.workspace.log_event(f"Tester acceptance failed: {abs_file}: {acceptance['reason']}", message.phase)
+                        return Message(sender="tester", receiver="supervisor", msg_type="ResultMsg",
+                                       phase=message.phase, payload={"filepath": abs_file, "status": "runtime_failure", "reason": acceptance["reason"]})
+                    self.workspace.save_test_result(message.phase, "passed", json.dumps({"execution_status": "cli_acceptance_passed"}))
+                    self.workspace.log_event(f"Tester successfully passed acceptance: {abs_file}", message.phase)
+                    return Message(sender="tester", receiver="supervisor", msg_type="ResultMsg",
+                                   phase=message.phase, payload={"filepath": abs_file, "status": "passed", "execution_status": "cli_acceptance_passed"})
+                else:
+                    self.workspace.save_test_result(message.phase, "passed", json.dumps({"execution_status": "cli_help_tested"}))
+                    self.workspace.log_event(f"Tester successfully tested CLI with --help: {abs_file}", message.phase)
+                    return Message(sender="tester", receiver="supervisor", msg_type="ResultMsg",
+                                   phase=message.phase, payload={"filepath": abs_file, "status": "passed", "execution_status": "cli_help_tested"})
             elif result["status"] == "failed":
                 error_type = self.executor.classify_error(result["stderr"])
                 if error_type == "python_error":
@@ -72,15 +120,19 @@ class Tester:
                     return Message(sender="tester", receiver="supervisor", msg_type="ResultMsg",
                                    phase=message.phase, payload=payload)
                 else:
-                    self.workspace.save_test_result(message.phase, "passed", json.dumps({"execution_status": "cli_not_executed", "reason": "cli validation failed"}))
-                    self.workspace.log_event(f"Tester: CLI execution failed but no Python error detected: {abs_file}", message.phase)
+                    self.workspace.save_test_result(message.phase, "failed", json.dumps(result))
+                    self.workspace.log_event(f"Tester: CLI validation failed: {abs_file}", message.phase)
+                    payload = dict(result)
+                    payload["filepath"] = abs_file
                     return Message(sender="tester", receiver="supervisor", msg_type="ResultMsg",
-                                   phase=message.phase, payload={"filepath": abs_file, "status": "passed", "execution_status": "cli_not_executed", "reason": "cli validation failed"})
+                                   phase=message.phase, payload=payload)
             elif result["status"] == "timeout":
-                self.workspace.save_test_result(message.phase, "passed", json.dumps({"execution_status": "cli_not_executed", "reason": "timeout during CLI validation"}))
+                self.workspace.save_test_result(message.phase, "failed", json.dumps(result))
                 self.workspace.log_event(f"Tester: CLI execution timed out: {abs_file}", message.phase)
+                payload = dict(result)
+                payload["filepath"] = abs_file
                 return Message(sender="tester", receiver="supervisor", msg_type="ResultMsg",
-                               phase=message.phase, payload={"filepath": abs_file, "status": "passed", "execution_status": "cli_not_executed", "reason": "timeout during CLI validation"})
+                               phase=message.phase, payload=payload)
             else:
                 self.workspace.save_test_result(message.phase, "error", json.dumps({"error": "cli_execution_failed", "stderr": result.get("stderr", "")}))
                 self.workspace.log_event(f"Tester error: {abs_file}", message.phase)
