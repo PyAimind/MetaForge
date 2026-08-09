@@ -108,6 +108,48 @@ class Engineer:
             diagnosis["suggested_fix"] = "\n".join(repair_lines)
         repair_context = payload.get("repair_context")
         if repair_context:
+            all_modules = repair_context.get("all_modules")
+            if all_modules:
+                lines = []
+                lines.append("MULTI‑MODULE RUNTIME FAILURE REPAIR")
+                lines.append("")
+                lines.append("The product acceptance test failed. The root cause may involve several modules.")
+                lines.append("Below is the complete source code and contract of every generated module.")
+                lines.append("Inspect all files, identify the root cause, and modify only the files that need to change.")
+                lines.append("")
+
+                for mod in all_modules:
+                    mod_name = mod.get("module_name", "unknown")
+                    source = mod.get("source_code") or ""
+                    contract = mod.get("contract") or {}
+                    lines.append(f"=== MODULE: {mod_name} ===")
+                    lines.append("SOURCE CODE:")
+                    lines.append("```")
+                    lines.append(source)
+                    lines.append("```")
+                    lines.append("CONTRACT:")
+                    lines.append(json.dumps(contract, indent=2))
+                    lines.append("")
+
+                lines.append("INSTRUCTION:")
+                lines.append("1. Find the root cause of the runtime failure by examining all modules above.")
+                lines.append("2. Modify ONLY the files that are incorrect – do not touch correct files.")
+                lines.append("3. Return the FULL corrected code for EVERY modified module.")
+                lines.append("4. Format your answer as a JSON object with module filenames as keys and the "
+                             "complete corrected source code as values.")
+                lines.append("Example: {\"cli.py\": \"...\", \"todo_manager.py\": \"...\"}")
+
+                repair_prompt = "\n".join(lines)
+                diagnosis = module_info.setdefault("debugger_diagnosis", {})
+                diagnosis["suggested_fix"] = repair_prompt
+
+                filename = module_info.get("filename") or "fixed_module.py"
+                response_payload = {"prompts": {filename: repair_prompt}}
+                if payload.get("is_fix"):
+                    response_payload["is_fix"] = True
+                    response_payload["repair_context"] = repair_context
+                return self._success_response(phase, response_payload)
+
             ctx = repair_context
             lines = []
             lines.append(f"REPAIR TARGET: {ctx.get('module_name', 'unknown')} (attempt {ctx.get('previous_attempts', 0) + 1})")
@@ -160,7 +202,7 @@ class Engineer:
             response_payload = {"prompts": {filename: repair_prompt}}
             if payload.get("is_fix"):
                 response_payload["is_fix"] = True
-                response_payload["repair_context"] = payload.get("repair_context", {})
+                response_payload["repair_context"] = repair_context
             return self._success_response(phase, response_payload)
 
         for key in ("exports", "required_imports", "dependencies", "parameters"):
