@@ -134,6 +134,7 @@ class Engineer:
                 lines.append("INSTRUCTION:")
                 lines.append("1. Find the root cause of the runtime failure by examining all modules above.")
                 lines.append("2. Modify ONLY the files that are incorrect – do not touch correct files.")
+                lines.append("2.5. If `cli.py` is among the modified files, ensure its `list` output matches the MANDATORY CLI Output Contract: each todo printed as `<ID> <DESCRIPTION>` (e.g., `1 Test todo`), with no colon after the ID.")
                 lines.append("3. Return the FULL corrected code for EVERY modified module.")
                 lines.append("4. Format your answer as a JSON object with module filenames as keys and the "
                              "complete corrected source code as values.")

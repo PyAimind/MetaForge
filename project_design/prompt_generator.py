@@ -30,34 +30,13 @@ def generate_prompt(module_info: dict) -> str:
     exports = module_info.get("exports", [])
     exports_text_lines = []
     for exp in exports:
-        if not isinstance(exp, dict):
-            continue
-        name = exp.get("name", "unknown")
-        kind = exp.get("kind", "function")
-
-        if kind == "function":
-            parameters = exp.get("parameters") or []
+        if isinstance(exp, dict):
+            name = exp.get("name", "unknown")
+            kind = exp.get("kind", "function")
+            parameters = exp.get("parameters", [])
             params_str = ", ".join(f"{p.get('name', '?')}: {p.get('type', '?')}" for p in parameters)
-            returns = exp.get("returns") or "None"
+            returns = exp.get("returns", "None")
             exports_text_lines.append(f"  - {name}({params_str}) -> {returns}")
-
-        elif kind == "class":
-            exports_text_lines.append(f"  - class {name}")
-            constructor = exp.get("constructor")
-            if isinstance(constructor, dict):
-                c_params = constructor.get("parameters") or []
-                c_params_str = ", ".join(f"{p.get('name', '?')}: {p.get('type', '?')}" for p in c_params)
-                exports_text_lines.append(f"      Constructor: __init__({c_params_str})")
-            methods = exp.get("methods") or []
-            if isinstance(methods, list):
-                for meth in methods:
-                    if isinstance(meth, dict):
-                        m_name = meth.get("name", "?")
-                        m_params = meth.get("parameters") or []
-                        m_params_str = ", ".join(f"{p.get('name', '?')}: {p.get('type', '?')}" for p in m_params)
-                        m_returns = meth.get("returns") or "None"
-                        exports_text_lines.append(f"      Method: {m_name}({m_params_str}) -> {m_returns}")
-
     exports_text = "\n".join(exports_text_lines) if exports_text_lines else "None"
 
     imports = module_info.get("required_imports", [])
@@ -88,6 +67,19 @@ CRITICAL RULES:
 · Implement ONLY the exports listed above. No additional public functions.
 · Use ONLY the imports specified above.
 · Do NOT add if __name__ == "__main__" block.
+
+"""
+
+    # --- NEW: Mandatory CLI output contract for cli.py ---
+    if module_info.get("filename") == "cli.py":
+        prompt += """### CLI Output Contract (MANDATORY)
+- For the `list` command, each todo MUST be printed on its own line in this exact format:
+  <ID> <DESCRIPTION>
+- Example: `1 Test todo`
+- The ID must be the first whitespace-delimited token on the line and contain only digits.
+- Do NOT print a colon (:) or any other punctuation after the ID.
+- The description is everything after the first whitespace.
+- These output-format rules are mandatory and must not be changed.
 
 """
 
