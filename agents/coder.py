@@ -113,34 +113,240 @@ class Coder:
 
         if payload.get("is_fix") and payload.get("repair_context"):
             repair_context = payload["repair_context"]
+
             filename = repair_context.get("module_name", "untitled.py")
             if not isinstance(filename, str) or not filename.strip():
                 filename = "untitled.py"
             else:
                 filename = os.path.basename(filename.strip())
+
             if not filename.endswith(".py"):
                 filename += ".py"
+
+            engineer_prompt = payload.get("code")
+            if isinstance(engineer_prompt, str) and engineer_prompt.strip():
+                repair_prompt_text = engineer_prompt
+            else:
+                repair_prompt_text = self._build_repair_prompt(repair_context)
 
             module_info = {
                 "filename": filename,
                 "description": repair_context.get("module_name", "Repair existing module"),
                 "exports": repair_context.get("contract", {}).get("exports", []),
-                "repair_prompt": self._build_repair_prompt(repair_context)
+                "repair_prompt": repair_prompt_text
             }
+
             try:
                 code = self.generator.generate(module_info)
             except Exception as e:
-                self.workspace.log_event(f"Coder repair generator failed for {filename}: {e}", message.phase)
+                self.workspace.log_event(
+                    f"Coder repair generator failed for {filename}: {e}",
+                    message.phase
+                )
                 code = FALLBACK_CODE
 
+            if "all_modules" in repair_context and repair_context["all_modules"]:
+                all_modules_list = repair_context["all_modules"]
+
+                expected_modules = set()
+                for mod in all_modules_list:
+                    if isinstance(mod, dict) and mod.get("module_name"):
+                        safe_name = os.path.basename(mod["module_name"])
+                        if not safe_name.endswith(".py"):
+                            safe_name += ".py"
+                        expected_modules.add(safe_name)
+
+                try:
+                    multi_code = json.loads(code)
+                except json.JSONDecodeError as e:
+                    self.workspace.log_event(
+                        f"Coder multi-file repair: invalid JSON from LLM: {e}",
+                        message.phase
+                    )
+                    return Message(
+                        sender="coder",
+                        receiver="supervisor",
+                        msg_type="ResultMsg",
+                        phase=message.phase,
+                        payload={
+                            "status": "error",
+                            "reason": f"Multi-file repair failed: invalid JSON: {e}"
+                        }
+                    )
+
+                if not isinstance(multi_code, dict):
+                    self.workspace.log_event(
+                        "Coder multi-file repair: LLM did not return a JSON object",
+                        message.phase
+                    )
+                    return Message(
+                        sender="coder",
+                        receiver="supervisor",
+                        msg_type="ResultMsg",
+                        phase=message.phase,
+                        payload={
+                            "status": "error",
+                            "reason": "Multi-file repair failed: LLM response is not a JSON object"
+                        }
+                    )
+
+                valid_updates = {}
+
+                for key, value in multi_code.items():
+                    if not isinstance(key, str):
+                        return Message(
+                            sender="coder",
+                            receiver="supervisor",
+                            msg_type="ResultMsg",
+                            phase=message.phase,
+                            payload={
+                                "status": "error",
+                                "reason": "Multi-file repair failed: module filename must be a string"
+                            }
+                        )
+
+                    safe_name = key if key.endswith(".py") else f"{key}.py"
+                    base = os.path.basename(safe_name)
+
+                    if base not in expected_modules:
+                        self.workspace.log_event(
+                            f"Coder multi-file repair: unexpected module '{base}' in LLM response",
+                            message.phase
+                        )
+                        return Message(
+                            sender="coder",
+                            receiver="supervisor",
+                            msg_type="ResultMsg",
+                            phase=message.phase,
+                            payload={
+                                "status": "error",
+                                "reason": f"Multi-file repair failed: unexpected module '{base}'"
+                            }
+                        )
+
+                    if not isinstance(value, str):
+                        self.workspace.log_event(
+                            f"Coder multi-file repair: non-string value for module '{base}'",
+                            message.phase
+                        )
+                        return Message(
+                            sender="coder",
+                            receiver="supervisor",
+                            msg_type="ResultMsg",
+                            phase=message.phase,
+                            payload={
+                                "status": "error",
+                                "reason": f"Multi-file repair failed: non-string value for '{base}'"
+                            }
+                        )
+
+                    valid_updates[base] = value
+
+                if not valid_updates:
+                    self.workspace.log_event(
+                        "Coder multi-file repair: no valid module updates in LLM response",
+                        message.phase
+                    )
+                    return Message(
+                        sender="coder",
+                        receiver="supervisor",
+                        msg_type="ResultMsg",
+                        phase=message.phase,
+                        payload={
+                            "status": "error",
+                            "reason": "Multi-file repair failed: no valid module updates"
+                        }
+                    )
+
+                entry_module = payload.get("filename")
+                if not isinstance(entry_module, str) or not entry_module.strip():
+                    self.workspace.log_event(
+                        "Coder multi-file repair: missing entry module filename",
+                        message.phase
+                    )
+                    return Message(
+                        sender="coder",
+                        receiver="supervisor",
+                        msg_type="ResultMsg",
+                        phase=message.phase,
+                        payload={
+                            "status": "error",
+                            "reason": "Multi-file repair failed: missing entry module filename"
+                        }
+                    )
+
+                entry_base = os.path.basename(entry_module.strip())
+                if not entry_base.endswith(".py"):
+                    entry_base += ".py"
+
+                entry_code = valid_updates.get(entry_base)
+
+                if entry_code is None:
+                    self.workspace.log_event(
+                        f"Coder multi-file repair: entry module '{entry_base}' "
+                        "not found in LLM response",
+                        message.phase
+                    )
+                    return Message(
+                        sender="coder",
+                        receiver="supervisor",
+                        msg_type="ResultMsg",
+                        phase=message.phase,
+                        payload={
+                            "status": "error",
+                            "reason": (
+                                f"Multi-file repair failed: entry module "
+                                f"'{entry_base}' not found"
+                            )
+                        }
+                    )
+
+                os.makedirs(config.OUTPUT_DIR, exist_ok=True)
+
+                try:
+                    for mod_name, mod_code in valid_updates.items():
+                        mod_path = os.path.join(config.OUTPUT_DIR, mod_name)
+
+                        with open(mod_path, 'w', encoding='utf-8') as f:
+                            f.write(mod_code)
+
+                        self.workspace.log_event(
+                            f"Coder wrote multi-file repair for {mod_name}",
+                            message.phase
+                        )
+
+                except OSError as e:
+                    self.workspace.log_event(
+                        f"Coder multi-file repair: file write failed: {e}",
+                        message.phase
+                    )
+                    return Message(
+                        sender="coder",
+                        receiver="supervisor",
+                        msg_type="ResultMsg",
+                        phase=message.phase,
+                        payload={
+                            "status": "error",
+                            "reason": f"Multi-file repair failed: {type(e).__name__}: {e}"
+                        }
+                    )
+
+                code = entry_code
+
             if code == FALLBACK_CODE:
-                self.workspace.log_event(f"Coder used FALLBACK for: {filename}", message.phase)
+                self.workspace.log_event(
+                    f"Coder used FALLBACK for: {filename}",
+                    message.phase
+                )
 
             if self.context_manager is not None:
                 try:
                     self.context_manager.add_module(filename, code)
                 except Exception as e:
-                    self.workspace.log_event(f"Coder: failed to add module to context for {filename}: {e}", message.phase)
+                    self.workspace.log_event(
+                        f"Coder: failed to add module to context for {filename}: {e}",
+                        message.phase
+                    )
 
             os.makedirs(config.OUTPUT_DIR, exist_ok=True)
             filepath = os.path.join(config.OUTPUT_DIR, filename)
@@ -148,31 +354,71 @@ class Coder:
             try:
                 with open(filepath, 'w', encoding='utf-8') as f:
                     f.write(code)
-                self.workspace.log_event(f"Coder wrote file: {filepath}", message.phase)
+
+                self.workspace.log_event(
+                    f"Coder wrote file: {filepath}",
+                    message.phase
+                )
+
                 try:
-                    contracts_path = os.path.join(config.WORKSPACE_DIR, "contracts.json")
+                    contracts_path = os.path.join(
+                        config.WORKSPACE_DIR,
+                        "contracts.json"
+                    )
+
                     if os.path.isfile(contracts_path):
                         with open(contracts_path, 'r', encoding='utf-8') as cf:
                             contracts = json.load(cf)
+
                         if filename in contracts:
                             contracts[filename]["generated"] = True
+
                         with open(contracts_path, 'w', encoding='utf-8') as cf:
                             json.dump(contracts, cf, indent=2)
+
                 except Exception:
                     pass
-                final_status = "fallback" if code.strip() == FALLBACK_CODE.strip() else "success"
-                return Message(sender="coder", receiver="supervisor", msg_type="ResultMsg",
-                               phase=message.phase, payload={"filepath": filepath, "status": final_status})
+
+                final_status = (
+                    "fallback"
+                    if code.strip() == FALLBACK_CODE.strip()
+                    else "success"
+                )
+
+                return Message(
+                    sender="coder",
+                    receiver="supervisor",
+                    msg_type="ResultMsg",
+                    phase=message.phase,
+                    payload={
+                        "filepath": filepath,
+                        "status": final_status
+                    }
+                )
+
             except Exception as e:
-                self.workspace.log_event(f"Coder error: {e}", message.phase)
-                return Message(sender="coder", receiver="supervisor", msg_type="ResultMsg",
-                               phase=message.phase, payload={"status": "error", "reason": f"{type(e).__name__}: {str(e)}"})
+                self.workspace.log_event(
+                    f"Coder error: {e}",
+                    message.phase
+                )
+                return Message(
+                    sender="coder",
+                    receiver="supervisor",
+                    msg_type="ResultMsg",
+                    phase=message.phase,
+                    payload={
+                        "status": "error",
+                        "reason": f"{type(e).__name__}: {str(e)}"
+                    }
+                )
 
         filename = payload.get("filename", "untitled.py")
+
         if not isinstance(filename, str) or not filename.strip():
             filename = "untitled.py"
         else:
             filename = os.path.basename(filename.strip())
+
         if not filename.endswith(".py"):
             filename += ".py"
 
@@ -183,25 +429,47 @@ class Coder:
                 compile(provided_code, filename, 'exec')
                 code = provided_code
             except Exception:
-                self.workspace.log_event(f"Coder: direct code invalid for {filename}, using generator", message.phase)
-                module_info = self._build_module_info(filename, payload, message.phase)
+                self.workspace.log_event(
+                    f"Coder: direct code invalid for {filename}, using generator",
+                    message.phase
+                )
+                module_info = self._build_module_info(
+                    filename,
+                    payload,
+                    message.phase
+                )
                 code = self.generator.generate(module_info)
+
         else:
-            module_info = self._build_module_info(filename, payload, message.phase)
+            module_info = self._build_module_info(
+                filename,
+                payload,
+                message.phase
+            )
+
             try:
                 code = self.generator.generate(module_info)
             except Exception as e:
-                self.workspace.log_event(f"Coder generator failed for {filename}: {e}", message.phase)
+                self.workspace.log_event(
+                    f"Coder generator failed for {filename}: {e}",
+                    message.phase
+                )
                 code = FALLBACK_CODE
 
         if code == FALLBACK_CODE:
-            self.workspace.log_event(f"Coder used FALLBACK for: {filename}", message.phase)
+            self.workspace.log_event(
+                f"Coder used FALLBACK for: {filename}",
+                message.phase
+            )
 
         if self.context_manager is not None:
             try:
                 self.context_manager.add_module(filename, code)
             except Exception as e:
-                self.workspace.log_event(f"Coder: failed to add module to context for {filename}: {e}", message.phase)
+                self.workspace.log_event(
+                    f"Coder: failed to add module to context for {filename}: {e}",
+                    message.phase
+                )
 
         os.makedirs(config.OUTPUT_DIR, exist_ok=True)
         filepath = os.path.join(config.OUTPUT_DIR, filename)
@@ -209,25 +477,63 @@ class Coder:
         try:
             with open(filepath, 'w', encoding='utf-8') as f:
                 f.write(code)
-            self.workspace.log_event(f"Coder wrote file: {filepath}", message.phase)
+
+            self.workspace.log_event(
+                f"Coder wrote file: {filepath}",
+                message.phase
+            )
+
             try:
-                contracts_path = os.path.join(config.WORKSPACE_DIR, "contracts.json")
+                contracts_path = os.path.join(
+                    config.WORKSPACE_DIR,
+                    "contracts.json"
+                )
+
                 if os.path.isfile(contracts_path):
                     with open(contracts_path, 'r', encoding='utf-8') as cf:
                         contracts = json.load(cf)
+
                     if filename in contracts:
                         contracts[filename]["generated"] = True
+
                     with open(contracts_path, 'w', encoding='utf-8') as cf:
                         json.dump(contracts, cf, indent=2)
+
             except Exception:
                 pass
-            final_status = "fallback" if code.strip() == FALLBACK_CODE.strip() else "success"
-            return Message(sender="coder", receiver="supervisor", msg_type="ResultMsg",
-                           phase=message.phase, payload={"filepath": filepath, "status": final_status})
+
+            final_status = (
+                "fallback"
+                if code.strip() == FALLBACK_CODE.strip()
+                else "success"
+            )
+
+            return Message(
+                sender="coder",
+                receiver="supervisor",
+                msg_type="ResultMsg",
+                phase=message.phase,
+                payload={
+                    "filepath": filepath,
+                    "status": final_status
+                }
+            )
+
         except Exception as e:
-            self.workspace.log_event(f"Coder error: {e}", message.phase)
-            return Message(sender="coder", receiver="supervisor", msg_type="ResultMsg",
-                           phase=message.phase, payload={"status": "error", "reason": f"{type(e).__name__}: {str(e)}"})
+            self.workspace.log_event(
+                f"Coder error: {e}",
+                message.phase
+            )
+            return Message(
+                sender="coder",
+                receiver="supervisor",
+                msg_type="ResultMsg",
+                phase=message.phase,
+                payload={
+                    "status": "error",
+                    "reason": f"{type(e).__name__}: {str(e)}"
+                }
+            )
 
     def step(self) -> bool:
         try:
