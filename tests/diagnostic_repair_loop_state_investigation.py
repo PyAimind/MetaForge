@@ -1,26 +1,12 @@
-# === RUN OUTPUT (expected) ===
-# [1] Initial Tester → runtime_failure
-# [2] Supervisor → repair triggered
-# [3] RepairContext all_modules → ['storage.py', 'todo_manager.py', 'cli.py']
-# [4] Engineer → multi-module repair prompt generated
-# [5] Coder → repair processed
-# [6] Mock LLM calls → 1
-# [7] Corrected files verified
-# [8] Stale todos.json cleanup → done
-# [9] Tester after repair → passed
-# Tester execution_status: cli_acceptance_passed
-# Supervisor before Tester result → waiting_for_tester
-# Supervisor after Tester result → completed
-# [10] Supervisor → completed
-# [11] Repair cycles → 1
-# [12] fix_attempts['cli.py'] after successful repair → 0
-# PASS: REPAIR_LOOP_ORCHESTRATION_VERIFIED
+# === RUN OUTPUT ===
+# (Run the script and paste output here)
 
 import os
 import sys
 import json
 import tempfile
 import queue
+import hashlib
 import traceback
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -42,11 +28,9 @@ class MockLLMProvider:
     def __init__(self, corrected_json_str):
         self.corrected_json = corrected_json_str
         self.call_count = 0
-        self.last_messages = None
 
     def generate(self, messages, model, max_tokens, temperature):
         self.call_count += 1
-        self.last_messages = messages
         return self.corrected_json
 
 
@@ -166,7 +150,57 @@ if __name__ == '__main__':
 """
 
 
-def receive_from(channel, name, timeout=0.3):
+def print_file_state(label, path):
+    print(f"FILE STATE: {label}")
+    if not os.path.exists(path):
+        print("  exists: False")
+        return None
+    with open(path, 'rb') as f:
+        raw = f.read()
+    sha = hashlib.sha256(raw).hexdigest()
+    size = len(raw)
+    mtime = os.path.getmtime(path)
+    text = raw.decode('utf-8', errors='replace')
+    first_lines = text.splitlines()[:5]
+    print(f"  exists: True")
+    print(f"  sha256: {sha}")
+    print(f"  size: {size} bytes")
+    print(f"  mtime: {mtime}")
+    print("  first_5_lines:")
+    for line in first_lines:
+        print(f"    {line}")
+    return {
+        'sha': sha,
+        'size': size,
+        'mtime': mtime,
+        'content': text,
+        'first_lines': first_lines
+    }
+
+
+def classify_state(info, kind):
+    if info is None:
+        return "MISSING"
+    content = info['content']
+    if kind == 'cli':
+        if "{todo['id']}: {todo['description']}" in content:
+            return "OLD"
+        elif "{todo['id']} {todo['description']}" in content:
+            return "NEW"
+        else:
+            return "DIFFERENT"
+    elif kind == 'todo_manager':
+        if "'id': todo_id" in content and "'description': description" in content:
+            return "NEW"
+        elif "self.todos.append(description)" in content:
+            return "OLD"
+        else:
+            return "DIFFERENT"
+    else:
+        return "UNKNOWN"
+
+
+def receive_from(channel, name, timeout=0.5):
     try:
         return channel.receive(name, timeout)
     except queue.Empty:
@@ -195,14 +229,15 @@ try:
     os.makedirs(ws, exist_ok=True)
     os.makedirs(out, exist_ok=True)
 
-    for fname, content in [
-        ("storage.py", STORAGE_CODE),
-        ("todo_manager.py", FAULTY_TODO),
-        ("cli.py", OLD_CLI_CODE)
-    ]:
-        with open(os.path.join(out, fname), 'w', encoding='utf-8') as f:
-            f.write(content)
+    # Write initial faulty modules
+    with open(os.path.join(out, 'storage.py'), 'w', encoding='utf-8') as f:
+        f.write(STORAGE_CODE)
+    with open(os.path.join(out, 'todo_manager.py'), 'w', encoding='utf-8') as f:
+        f.write(FAULTY_TODO)
+    with open(os.path.join(out, 'cli.py'), 'w', encoding='utf-8') as f:
+        f.write(OLD_CLI_CODE)
 
+    # Contracts
     contracts = {
         "storage.py": {"module": "storage.py", "exports": [], "dependencies": [], "generated": True, "validated": True},
         "todo_manager.py": {"module": "todo_manager.py", "exports": [], "dependencies": ["storage.py"], "generated": True, "validated": True},
@@ -224,19 +259,19 @@ try:
     coder = Coder(channel, wm, generator, context_manager=None, knowledge_base=None)
     tester = Tester(channel, wm, executor)
 
+    # ---------- Initial Tester failure ----------
     cli_path = os.path.join(out, 'cli.py')
     init_cmd = Message(
         sender="supervisor", receiver="tester", msg_type="CommandMsg", phase=1,
         payload={"action": "test", "filepath": cli_path}
     )
     init_result = tester.process_command(init_cmd)
-    init_status = init_result.payload.get('status')
-    log(f"[1] Initial Tester → {init_status}")
-    if init_status != 'runtime_failure':
-        log("FIRST DIVERGENCE: Initial Tester expected runtime_failure")
-        log(f"ACTUAL: {init_result.payload}")
-        sys.exit(1)
+    print("=== INITIAL TESTER RESULT ===")
+    print(f"status: {init_result.payload.get('status')}")
+    print(f"reason: {init_result.payload.get('reason')}")
+    print(f"full payload: {init_result.payload}")
 
+    # Prepare Supervisor state
     supervisor.status = "waiting_for_tester"
     supervisor.modules = [
         {"filename": "storage.py", "dependencies": []},
@@ -246,163 +281,141 @@ try:
     supervisor.current_module_index = 2
     supervisor.fix_attempts = {}
 
-    repair_cycles = 0
+    # ---------- POINT A: BEFORE REPAIR ----------
+    print("\n=== POINT A: BEFORE REPAIR ===")
+    cli_a = print_file_state("cli.py", cli_path)
+    todo_a = print_file_state("todo_manager.py", os.path.join(out, 'todo_manager.py'))
+    todos_path = os.path.join(out, 'todos.json')
+    todos_a = print_file_state("todos.json", todos_path)
+    state_cli_a = classify_state(cli_a, 'cli')
+    state_todo_a = classify_state(todo_a, 'todo_manager')
+    print(f"cli.py state: {state_cli_a}")
+    print(f"todo_manager.py state: {state_todo_a}")
+
+    # ---------- Supervisor repair trigger ----------
     channel.send(init_result)
     supervisor.step()
-
-    if supervisor.status == "waiting_for_engineer":
-        repair_cycles += 1
-        log("[2] Supervisor → repair triggered")
-    else:
-        log(f"FIRST DIVERGENCE: Supervisor expected waiting_for_engineer, got {supervisor.status}")
-        sys.exit(1)
-
     eng_cmd = receive_from(channel, "engineer")
     if not eng_cmd or "repair_context" not in eng_cmd.payload:
-        log("FIRST DIVERGENCE: No repair command sent to Engineer")
+        log("FIRST DIVERGENCE: Supervisor did not send repair command to Engineer")
         sys.exit(1)
-
-    all_mods = eng_cmd.payload["repair_context"].get("all_modules", [])
+    repair_ctx = eng_cmd.payload["repair_context"]
+    all_mods = repair_ctx.get("all_modules", [])
     mod_names = [m.get("module_name") for m in all_mods]
-    log(f"[3] RepairContext all_modules → {mod_names}")
-    if "cli.py" not in mod_names or "todo_manager.py" not in mod_names:
-        log("FIRST DIVERGENCE: all_modules missing required modules")
-        log(f"ACTUAL: {mod_names}")
-        sys.exit(1)
+    print(f"\nRepairContext all_modules: {mod_names}")
 
+    # Forward to Engineer
     channel.send(eng_cmd)
     engineer.step()
-
     eng_resp = receive_from(channel, "supervisor")
     if not eng_resp or "prompts" not in eng_resp.payload:
         log("FIRST DIVERGENCE: Engineer did not return prompts")
         sys.exit(1)
 
-    prompt = eng_resp.payload.get("prompts", {}).get("cli.py", "")
-    if "2.5. If `cli.py` is among the modified files" not in prompt:
-        log("FIRST DIVERGENCE: Engineer prompt missing CLI contract instruction")
-        log(f"PROMPT first 500 chars: {prompt[:500]}")
-        sys.exit(1)
-    log("[4] Engineer → multi-module repair prompt generated")
-
+    # Forward to Supervisor -> Coder
     channel.send(eng_resp)
     supervisor.step()
-
     coder_cmd = receive_from(channel, "coder")
     if not coder_cmd or not coder_cmd.payload.get("is_fix"):
         log("FIRST DIVERGENCE: Supervisor did not send repair command to Coder")
         sys.exit(1)
 
+    # Forward to Coder
     channel.send(coder_cmd)
     coder.step()
-    log(f"[5] Coder → repair processed")
-    log(f"[6] Mock LLM calls → {mock_provider.call_count}")
-    if mock_provider.call_count != 1:
-        log("FIRST DIVERGENCE: Mock LLM call count expected 1")
-        log(f"ACTUAL: {mock_provider.call_count}")
-        sys.exit(1)
 
-    todo_path = os.path.join(out, 'todo_manager.py')
-    cli_final_path = os.path.join(out, 'cli.py')
-    with open(todo_path, encoding='utf-8') as f:
-        todo_content = f.read()
-    with open(cli_final_path, encoding='utf-8') as f:
-        cli_content = f.read()
+    # ---------- POINT B: AFTER CODER REPAIR WRITE ----------
+    print("\n=== POINT B: AFTER CODER REPAIR WRITE ===")
+    cli_b = print_file_state("cli.py", cli_path)
+    todo_b = print_file_state("todo_manager.py", os.path.join(out, 'todo_manager.py'))
+    todos_b = print_file_state("todos.json", todos_path)
+    state_cli_b = classify_state(cli_b, 'cli')
+    state_todo_b = classify_state(todo_b, 'todo_manager')
+    print(f"cli.py corrected: {state_cli_b == 'NEW'}")
+    print(f"todo_manager.py corrected: {state_todo_b == 'NEW'}")
 
-    todo_ok = "'id': todo_id" in todo_content and "'description': description" in todo_content
-    cli_new_ok = "{todo['id']} {todo['description']}" in cli_content or "'id']} {todo['description']}" in cli_content
-    cli_old_bad = "{todo['id']}: {todo['description']}" in cli_content
-
-    if not (todo_ok and cli_new_ok and not cli_old_bad):
-        log("FIRST DIVERGENCE: Corrected files not verified")
-        log(f"todo_ok={todo_ok}, cli_new_ok={cli_new_ok}, cli_old_bad={cli_old_bad}")
-        log("todo_manager.py:\n" + todo_content[:500])
-        log("cli.py:\n" + cli_content[:500])
-        sys.exit(1)
-    log("[7] Corrected files verified")
-
-    todos_path = os.path.join(out, 'todos.json')
-    stale_cleanup_done = os.path.exists(todos_path)
-    if os.path.exists(todos_path):
-        os.remove(todos_path)
-        log("[8] Stale todos.json cleanup → done")
-    else:
-        log("[8] Stale todos.json cleanup → not needed")
-
+    # Coder response -> Supervisor -> Tester command
     coder_resp = receive_from(channel, "supervisor")
     if not coder_resp:
         log("FIRST DIVERGENCE: Coder did not send response to Supervisor")
         sys.exit(1)
-
     channel.send(coder_resp)
     supervisor.step()
-
     tester_cmd = receive_from(channel, "tester")
     if not tester_cmd or tester_cmd.payload.get("action") != "test":
         log("FIRST DIVERGENCE: Supervisor did not send test command to Tester")
         sys.exit(1)
 
+    # ---------- POINT C: BEFORE POST-REPAIR TESTER ----------
+    print("\n=== POINT C: BEFORE POST-REPAIR TESTER ===")
+    cli_c = print_file_state("cli.py", cli_path)
+    todo_c = print_file_state("todo_manager.py", os.path.join(out, 'todo_manager.py'))
+    todos_c = print_file_state("todos.json", todos_path)
+    state_cli_c = classify_state(cli_c, 'cli')
+    state_todo_c = classify_state(todo_c, 'todo_manager')
+    print(f"cli.py state: {state_cli_c}")
+    print(f"todo_manager.py state: {state_todo_c}")
+
+    # ---------- Post-repair Tester ----------
     channel.send(tester_cmd)
     tester.step()
-
     tester_result = receive_from(channel, "supervisor")
     if tester_result is None:
         log("FIRST DIVERGENCE: Tester ResultMsg was not captured.")
         sys.exit(1)
 
-    post_status = tester_result.payload.get('status')
-    execution_status = tester_result.payload.get('execution_status')
-    log(f"[9] Tester after repair → {post_status}")
-    log(f"Tester execution_status: {execution_status}")
-    log(f"Tester reason: {tester_result.payload.get('reason')}")
-    log(f"Tester stdout: {tester_result.payload.get('stdout')}")
-    log(f"Tester stderr: {tester_result.payload.get('stderr')}")
-    log(f"Tester full payload: {tester_result.payload}")
+    print("\n=== POST-REPAIR TESTER RESULT ===")
+    print(f"status: {tester_result.payload.get('status')}")
+    print(f"reason: {tester_result.payload.get('reason')}")
+    print(f"stdout: {tester_result.payload.get('stdout')}")
+    print(f"stderr: {tester_result.payload.get('stderr')}")
+    print(f"return_code: {tester_result.payload.get('return_code')}")
+    print(f"full payload: {tester_result.payload}")
 
-    if post_status != "passed" or execution_status != "cli_acceptance_passed":
-        log("FIRST DIVERGENCE: Post-repair Tester did not pass with expected execution_status.")
-        log(f"Current cli.py:\n{cli_content[:500]}")
-        log(f"Current todo_manager.py:\n{todo_content[:500]}")
-        log(f"Supervisor status before: {supervisor.status}")
-        sys.exit(1)
-
+    # Supervisor reaction
     pre_super_status = supervisor.status
-    log(f"Supervisor before Tester result → {pre_super_status}")
-
     channel.send(tester_result)
     supervisor.step()
-
     post_super_status = supervisor.status
-    log(f"Supervisor after Tester result → {post_super_status}")
-    log(f"[10] Supervisor → {post_super_status}")
+    print(f"\nSupervisor status before Tester result: {pre_super_status}")
+    print(f"Supervisor status after Tester result: {post_super_status}")
+    if post_super_status == "waiting_for_engineer":
+        print("Supervisor triggered another repair.")
+    else:
+        print("Supervisor did NOT trigger another repair.")
 
-    if post_super_status != "completed":
-        log("FIRST DIVERGENCE: Supervisor did not complete after successful Tester result.")
-        log(f"EXPECTED: completed, ACTUAL: {post_super_status}")
-        log(f"fix_attempts: {supervisor.fix_attempts}")
-        log(f"Tester payload: {tester_result.payload}")
-        sys.exit(1)
+    # ---------- Hash transition analysis ----------
+    print("\n=== FILE TRANSITION ANALYSIS ===")
+    def transition(old_state, new_state):
+        if old_state == new_state:
+            return f"{old_state} → {new_state}"
+        else:
+            return f"{old_state} → {new_state}"
 
-    log(f"[11] Repair cycles → {repair_cycles}")
-    if repair_cycles != 1:
-        log("FIRST DIVERGENCE: Expected exactly one repair cycle")
-        log(f"EXPECTED: 1, ACTUAL: {repair_cycles}")
-        sys.exit(1)
+    print(f"cli.py:\n  A → B: {state_cli_a} → {state_cli_b}\n  B → C: {state_cli_b} → {state_cli_c}")
+    print(f"todo_manager.py:\n  A → B: {state_todo_a} → {state_todo_b}\n  B → C: {state_todo_b} → {state_todo_c}")
 
-    final_fix_attempts = supervisor.fix_attempts.get('cli.py')
-    log(f"[12] fix_attempts['cli.py'] after successful repair → {final_fix_attempts}")
-    log("Expected after successful repair: 0 (counter reset by Supervisor)")
-    if final_fix_attempts != 0:
-        log("FIRST DIVERGENCE: fix_attempts should be reset to 0 after successful repair.")
-        log(f"EXPECTED: 0, ACTUAL: {final_fix_attempts}")
-        sys.exit(1)
-
-    if mock_provider.call_count != 1:
-        log("FIRST DIVERGENCE: Mock LLM call count not 1.")
-        log(f"ACTUAL: {mock_provider.call_count}")
-        sys.exit(1)
-
-    log("PASS: REPAIR_LOOP_ORCHESTRATION_VERIFIED")
+    # ---------- Root cause classification ----------
+    print("\n=== ROOT-CAUSE CLASSIFICATION ===")
+    if state_cli_a == "OLD" and state_cli_b == "OLD":
+        print("ROOT CAUSE:\nCoder did not write the corrected files during this execution.")
+        print("Evidence:\ncli.py A/B state: OLD/OLD\ncli.py hashes: A={}, B={}".format(cli_a['sha'] if cli_a else 'none', cli_b['sha'] if cli_b else 'none'))
+    elif state_cli_a == "OLD" and state_cli_b == "NEW" and state_cli_c == "OLD":
+        print("ROOT CAUSE:\nCorrected files were written by Coder but reverted/overwritten before Tester.")
+        print("Evidence:\ncli.py A/B/C hashes:\n A: {}\n B: {}\n C: {}".format(cli_a['sha'] if cli_a else 'none', cli_b['sha'] if cli_b else 'none', cli_c['sha'] if cli_c else 'none'))
+    elif state_cli_a == "OLD" and state_cli_b == "NEW" and state_cli_c == "NEW":
+        if tester_result.payload.get('status') != 'passed':
+            print("ROOT CAUSE:\nCoder write persisted until Tester; failure is NOT caused by code reversion.")
+            print(f"Tester reason: {tester_result.payload.get('reason')}")
+            print(f"Tester stdout: {tester_result.payload.get('stdout')}")
+            print(f"Tester stderr: {tester_result.payload.get('stderr')}")
+            print(f"todos.json content: {todos_c['content'][:200] if todos_c else 'missing'}")
+        else:
+            print("UNEXPECTED:\nTester passed after repair; state investigation does not reproduce the previous failure.")
+    else:
+        print("INCONCLUSIVE:\nUnexpected state transitions.")
+        print(f"cli.py: {state_cli_a} -> {state_cli_b} -> {state_cli_c}")
+        print(f"todo_manager.py: {state_todo_a} -> {state_todo_b} -> {state_todo_c}")
 
 except Exception:
     traceback.print_exc()
