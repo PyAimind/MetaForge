@@ -19,7 +19,8 @@ DEFAULT_TEMPLATE = {
                 }
             ]
         }
-    ]
+    ],
+    "acceptance_tests": []
 }
 
 class StructureDesignerLLM:
@@ -39,6 +40,12 @@ class StructureDesignerLLM:
             "Filenames must end with .py, be relative, unique, and not contain path separators. "
             "Dependencies must reference existing filenames. Ensure all fields are non-empty strings.\n"
             "\n"
+            "IMPORTANT API DESIGN RULES:\n"
+            "- For simple utility modules, prefer standalone functions instead of classes.\n"
+            "- Create a class ONLY when the idea clearly requires object state, lifecycle management, or multiple related behaviors sharing persistent data.\n"
+            "- Do NOT create classes just to wrap simple functions.\n"
+            "- A greeting generator, a calculator utility, or a simple data processor should normally export functions, not classes.\n"
+            "\n"
             "For EVERY module, you MUST also include:\n"
             "\n"
             '· "exports": a list of public functions/classes this module provides.\n'
@@ -47,6 +54,24 @@ class StructureDesignerLLM:
             '· "required_imports": a list of required imports from dependencies (each with "module" and "names").\n'
             "\n"
             'Example: {"filename":"greeter.py","exports":[{"name":"greet","kind":"function","parameters":[{"name":"name","type":"str"}],"returns":"str"}],"required_imports":[]}\n'
+            "\n"
+            "ACCEPTANCE TESTS (ROOT-LEVEL):\n"
+            "At the root of the JSON object, also include an \"acceptance_tests\" list containing 2-5 project-agnostic acceptance tests.\n"
+            "Each acceptance test must be a dictionary with these exact fields:\n"
+            '{\n'
+            '  "description": "Human-readable description of the test",\n'
+            '  "entrypoint": "generated_entrypoint.py",\n'
+            '  "args": [],\n'
+            '  "expected_stdout_contains": [],\n'
+            '  "expected_return_code": 0,\n'
+            '  "timeout_seconds": 10\n'
+            '}\n'
+            "The entrypoint must be an existing generated module filename ending with .py.\n"
+            "args must be a list of strings.\n"
+            "expected_stdout_contains must be a list of strings.\n"
+            "expected_return_code must be an integer, normally 0.\n"
+            "timeout_seconds must be a positive integer.\n"
+            "Acceptance tests must be executable through the generated Python entrypoint using command-line arguments and must verify observable CLI behaviour through stdout and return code. Do not generate GUI-only, implementation-only, or non-executable tests.\n"
         )
         messages = [
             {"role": "system", "content": system_prompt},
@@ -183,6 +208,49 @@ class StructureDesignerLLM:
                             })
                         required_imports = valid_imports
                     mod["required_imports"] = required_imports
+
+            acceptance_tests = structure.get("acceptance_tests", [])
+            if not isinstance(acceptance_tests, list):
+                acceptance_tests = []
+
+            valid_acceptance_tests = []
+            module_filenames = all_filenames
+            for test in acceptance_tests:
+                if not isinstance(test, dict):
+                    continue
+                desc = test.get("description")
+                entry = test.get("entrypoint")
+                args = test.get("args")
+                expected_stdout = test.get("expected_stdout_contains")
+                expected_rc = test.get("expected_return_code")
+                timeout = test.get("timeout_seconds")
+
+                if not isinstance(desc, str) or not desc.strip():
+                    continue
+                if not isinstance(entry, str) or not entry.strip() or not entry.endswith(".py"):
+                    continue
+                if entry not in module_filenames:
+                    continue
+                if not isinstance(args, list) or not all(isinstance(a, str) for a in args):
+                    continue
+                if not isinstance(expected_stdout, list) or not all(isinstance(s, str) for s in expected_stdout):
+                    continue
+                if isinstance(expected_rc, bool) or not isinstance(expected_rc, int):
+                    continue
+                if not isinstance(timeout, int) or timeout <= 0:
+                    continue
+
+                valid_acceptance_tests.append({
+                    "description": desc.strip(),
+                    "entrypoint": entry.strip(),
+                    "args": args,
+                    "expected_stdout_contains": expected_stdout,
+                    "expected_return_code": expected_rc,
+                    "timeout_seconds": timeout,
+                })
+
+            structure["acceptance_tests"] = valid_acceptance_tests
+
             return json.loads(json.dumps(structure))
         except Exception:
             return json.loads(json.dumps(DEFAULT_TEMPLATE))
