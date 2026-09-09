@@ -1,5 +1,7 @@
 import json
 import os
+import sys
+import traceback
 
 DEFAULT_TEMPLATE = {
     "project_name": "Untitled",
@@ -12,6 +14,7 @@ DEFAULT_TEMPLATE = {
                 {
                     "filename": "main.py",
                     "description": "Main entry point",
+                    "type": "entrypoint",
                     "dependencies": [],
                     "purpose": "main_entry",
                     "exports": [],
@@ -27,9 +30,19 @@ class StructureDesignerLLM:
     def __init__(self, provider):
         self.provider = provider
 
+    def _log_fallback(self, stage: str, exc: Exception) -> None:
+        print(
+            f"[StructureDesignerFallback] stage={stage} "
+            f"exception_type={type(exc).__name__} "
+            f"exception_message={str(exc)}",
+            file=sys.stderr,
+        )
+        print(traceback.format_exc(), file=sys.stderr)
+
     def design(self, idea: str) -> dict:
         if not idea or not idea.strip():
             return json.loads(json.dumps(DEFAULT_TEMPLATE))
+
         model = os.getenv("LLM_ENGINEER_MODEL", "deepseek/deepseek-chat-v3.1")
         system_prompt = (
             "You are an expert software architect. Follow SOLID principles, high cohesion, low coupling. "
@@ -48,12 +61,15 @@ class StructureDesignerLLM:
             "\n"
             "For EVERY module, you MUST also include:\n"
             "\n"
+            '· "type": either "library" or "entrypoint".\n'
+            '  - "library" modules expose reusable public APIs; every public function/class must be listed in "exports".\n'
+            '  - "entrypoint" modules are executable application interfaces (e.g., CLI entry points); they may contain a public main() function and do not need to list it in "exports".\n'
             '· "exports": a list of public functions/classes this module provides.\n'
             '  - For each function, include: "name", "kind" ("function"), "parameters" (list of {name, type}), "returns" (type string or null).\n'
             '  - For each class, include: "name", "kind" ("class"), "constructor" (object with "parameters" list) when a custom init is required, and "methods" (list of method signatures, each with "name", "kind" ("function"), "parameters", "returns").\n'
             '· "required_imports": a list of required imports from dependencies (each with "module" and "names").\n'
             "\n"
-            'Example: {"filename":"greeter.py","exports":[{"name":"greet","kind":"function","parameters":[{"name":"name","type":"str"}],"returns":"str"}],"required_imports":[]}\n'
+            'Example: {"filename":"greeter.py","type":"library","exports":[{"name":"greet","kind":"function","parameters":[{"name":"name","type":"str"}],"returns":"str"}],"required_imports":[]}\n'
             "\n"
             "ACCEPTANCE TESTS (ROOT-LEVEL):\n"
             "At the root of the JSON object, also include an \"acceptance_tests\" list containing 2-5 project-agnostic acceptance tests.\n"
@@ -72,15 +88,37 @@ class StructureDesignerLLM:
             "expected_return_code must be an integer, normally 0.\n"
             "timeout_seconds must be a positive integer.\n"
             "Acceptance tests must be executable through the generated Python entrypoint using command-line arguments and must verify observable CLI behaviour through stdout and return code. Do not generate GUI-only, implementation-only, or non-executable tests.\n"
+            "\n"
+            "IMPORTANT GUIDELINES FOR ACCEPTANCE TEST GENERATION:\n"
+            "1. Generate only deterministic and likely-to-pass tests for typical argparse-based CLIs.\n"
+            "2. ALWAYS include a help test:\n"
+            '   {"args": ["--help"], "expected_stdout_contains": ["usage"], "expected_return_code": 0}\n'
+            "3. For a successful command with deterministic output, use the actual input data in expected_stdout_contains.\n"
+            '   Example for Todo: {"args": ["add", "Buy milk"], "expected_stdout_contains": ["Buy milk"], "expected_return_code": 0}\n'
+            "4. For commands with random or unpredictable output (e.g., password generator), set expected_stdout_contains to [] and only check expected_return_code = 0.\n"
+            "5. Only generate a no-arguments error test if the CLI has required arguments. In that case use:\n"
+            '   {"args": [], "expected_stdout_contains": [], "expected_return_code": 2}\n'
+            "   Do not generate this test if the CLI has all optional arguments or default values.\n"
+            "6. Do NOT generate tests for optional flags (like --dry-run) unless the user idea explicitly mentions that flag and its behavior.\n"
+            "7. Do NOT generate tests for runtime errors (like invalid directory) unless the user idea explicitly requires specific error handling.\n"
+            "8. Avoid positional arguments in args unless the CLI contract explicitly defines a positional argument. Always use named options.\n"
+            "9. Keep the total number of acceptance tests between 2 and 4, focusing on the most important success paths and the help test.\n"
+            "10. For file-system or directory-dependent CLIs (e.g., file organizer), do NOT generate a success test that requires pre-existing files or directories. Only use --help and a no-arguments error test (if required arguments exist). If a success test is absolutely necessary, ensure it operates on the current directory or uses only arguments that do not depend on external file state.\n"
+            "11. Ensure all acceptance test args are complete and valid; every named option must have its corresponding value.\n"
         )
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": f"Idea: {idea.strip()}"}
         ]
+
+        stage = "provider.generate"
         try:
             raw = self.provider.generate(messages, model=model, temperature=0.2)
-        except Exception:
+        except Exception as exc:
+            self._log_fallback(stage, exc)
             return json.loads(json.dumps(DEFAULT_TEMPLATE))
+
+        stage = "json_extraction"
         try:
             start = raw.find('{')
             end = raw.rfind('}')
@@ -88,6 +126,12 @@ class StructureDesignerLLM:
                 raise ValueError("No JSON braces found")
             json_str = raw[start:end+1]
             structure = json.loads(json_str)
+        except Exception as exc:
+            self._log_fallback(stage, exc)
+            return json.loads(json.dumps(DEFAULT_TEMPLATE))
+
+        stage = "structure_validation"
+        try:
             if not isinstance(structure, dict):
                 raise ValueError("Parsed result is not a dict")
             if not isinstance(structure.get("project_name"), str) or not structure["project_name"].strip():
@@ -149,6 +193,10 @@ class StructureDesignerLLM:
                     purpose = mod.get("purpose")
                     if not isinstance(purpose, str) or not purpose.strip():
                         raise ValueError("purpose must be a non-empty string")
+                    module_type = mod.get("type", "library")
+                    if module_type not in ("library", "entrypoint"):
+                        module_type = "library"
+                    mod["type"] = module_type
                     exports = mod.get("exports")
                     if not isinstance(exports, list):
                         exports = []
@@ -209,6 +257,12 @@ class StructureDesignerLLM:
                         required_imports = valid_imports
                     mod["required_imports"] = required_imports
 
+        except Exception as exc:
+            self._log_fallback(stage, exc)
+            return json.loads(json.dumps(DEFAULT_TEMPLATE))
+
+        stage = "acceptance_tests_validation"
+        try:
             acceptance_tests = structure.get("acceptance_tests", [])
             if not isinstance(acceptance_tests, list):
                 acceptance_tests = []
@@ -251,6 +305,8 @@ class StructureDesignerLLM:
 
             structure["acceptance_tests"] = valid_acceptance_tests
 
-            return json.loads(json.dumps(structure))
-        except Exception:
+        except Exception as exc:
+            self._log_fallback(stage, exc)
             return json.loads(json.dumps(DEFAULT_TEMPLATE))
+
+        return json.loads(json.dumps(structure))
