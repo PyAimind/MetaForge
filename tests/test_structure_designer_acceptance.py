@@ -1,4 +1,3 @@
-# tests/test_structure_designer_acceptance.py
 import json
 import sys
 import os
@@ -64,7 +63,7 @@ class TestStructureDesignerAcceptance(unittest.TestCase):
         designer = self._make_designer({
             "acceptance_tests": [
                 {
-                    "description": "Test addition",
+                    "description": "Addition works",
                     "entrypoint": "calculator.py",
                     "args": ["add", "2", "3"],
                     "expected_stdout_contains": ["5"],
@@ -72,7 +71,7 @@ class TestStructureDesignerAcceptance(unittest.TestCase):
                     "timeout_seconds": 10
                 },
                 {
-                    "description": "Test help",
+                    "description": "Help works",
                     "entrypoint": "calculator.py",
                     "args": ["--help"],
                     "expected_stdout_contains": ["usage:"],
@@ -82,7 +81,24 @@ class TestStructureDesignerAcceptance(unittest.TestCase):
             ]
         })
         result = designer.design("test idea")
-        self.assertEqual(len(result["acceptance_tests"]), 2)
+        acceptance_tests = result["acceptance_tests"]
+        self.assertEqual(len(acceptance_tests), 2)
+
+        first, second = acceptance_tests[0], acceptance_tests[1]
+
+        self.assertEqual(first["description"], "Addition works")
+        self.assertEqual(first["entrypoint"], "calculator.py")
+        self.assertEqual(first["args"], ["add", "2", "3"])
+        self.assertEqual(first["expected_stdout_contains"], ["5"])
+        self.assertEqual(first["expected_return_code"], 0)
+        self.assertEqual(first["timeout_seconds"], 10)
+
+        self.assertEqual(second["description"], "Help works")
+        self.assertEqual(second["entrypoint"], "calculator.py")
+        self.assertEqual(second["args"], ["--help"])
+        self.assertEqual(second["expected_stdout_contains"], ["usage:"])
+        self.assertEqual(second["expected_return_code"], 0)
+        self.assertEqual(second["timeout_seconds"], 5)
 
     def test_invalid_entrypoint_discarded(self):
         designer = self._make_designer({
