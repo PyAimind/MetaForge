@@ -27,6 +27,8 @@ class Supervisor:
         self.current_module_index = 0
         self.prompts = {}
         self.fix_attempts = {}
+        self.acceptance_tests = []
+        self.acceptance_repair_pending = False
 
     def set_idea(self, idea: str) -> None:
         self.idea = idea
@@ -115,6 +117,20 @@ class Supervisor:
                 return False
         return True
 
+    def _get_acceptance_entrypoint_module(self):
+        """Return the module that is used as the entrypoint for the first acceptance test."""
+        if self.acceptance_tests:
+            entrypoint_filename = self.acceptance_tests[0].get("entrypoint")
+            if entrypoint_filename:
+                for mod in self.modules:
+                    if mod.get("filename") == entrypoint_filename:
+                        return mod
+        # Fallback to first entrypoint module or first module
+        for mod in self.modules:
+            if mod.get("type") == "entrypoint":
+                return mod
+        return self.modules[0] if self.modules else {"filename": "__acceptance__.py"}
+
     def step(self) -> bool:
         try:
             if self.status in ("idle", "completed", "error"):
@@ -130,6 +146,8 @@ class Supervisor:
                 return self._handle_waiting_for_coder()
             elif self.status == "waiting_for_tester":
                 return self._handle_waiting_for_tester()
+            elif self.status == "waiting_for_acceptance_tests":
+                return self._handle_waiting_for_acceptance_tests()
 
             return False
 
@@ -161,6 +179,9 @@ class Supervisor:
             for phase in structure.get("phases", []):
                 for mod in phase.get("modules", []):
                     self.modules.append(mod)
+            raw_acceptance = structure.get("acceptance_tests", [])
+            self.acceptance_tests = raw_acceptance if isinstance(raw_acceptance, list) else []
+            self.workspace.write_structure(structure)
 
             self.workspace.log_event("Supervisor received structure from Engineer")
             from project_design.contract_generator import ContractGenerator
@@ -172,6 +193,28 @@ class Supervisor:
         if "prompts" in msg.payload:
             prompts = msg.payload["prompts"]
             self.prompts.update(prompts)
+
+            if self.acceptance_repair_pending:
+                if not prompts:
+                    self.workspace.log_event("Acceptance repair failed: Engineer returned no prompts")
+                    self.status = "error"
+                    return True
+
+                prompt_key = next(iter(prompts))
+                prompt_text = prompts[prompt_key]
+
+                coder_payload = {
+                    "filename": prompt_key,
+                    "description": "Repair for final acceptance failure",
+                    "dependencies": [],
+                    "purpose": "acceptance_repair",
+                    "code": prompt_text,
+                    "is_fix": True,
+                    "repair_context": msg.payload.get("repair_context", {})
+                }
+                self._send_command("coder", "code", coder_payload)
+                self.status = "waiting_for_coder"
+                return True
 
             if "fixed_module.py" in prompts:
                 mod = self.modules[self.current_module_index]
@@ -246,8 +289,19 @@ class Supervisor:
         coder_status = msg.payload.get("status")
         if coder_status == "success":
             filepath = msg.payload.get("filepath", "")
-            if self.api_inspector:
-                mod_key = self.modules[self.current_module_index]["filename"]
+
+            if self.acceptance_repair_pending:
+                self.acceptance_repair_pending = False
+                self._send_command("tester", "test", {"acceptance_tests": self.acceptance_tests})
+                self.status = "waiting_for_acceptance_tests"
+                return True
+
+            mod = self.modules[self.current_module_index]
+            mod_type = mod.get("type", "library")
+
+            # API Inspector is only for library modules, not entrypoints
+            if mod_type != "entrypoint" and self.api_inspector:
+                mod_key = mod["filename"]
                 exports = []
                 contracts_path = os.path.join(config.WORKSPACE_DIR, "contracts.json")
                 if os.path.isfile(contracts_path):
@@ -269,17 +323,17 @@ class Supervisor:
                         self.workspace.log_event(f"Supervisor: Max fix attempts reached for {mod_key}", self.current_module_index + 1)
                         self.status = "error"
                         return True
-                    ctx = self._build_repair_context(self.modules[self.current_module_index], filepath)
+                    ctx = self._build_repair_context(mod, filepath)
                     ctx.api_errors = [str(e) for e in inspect_result.get("errors", [])]
                     self._send_command("engineer", "generate_single_prompt", {
-                        "module_info": self.modules[self.current_module_index],
+                        "module_info": mod,
                         "is_fix": True,
                         "repair_context": vars(ctx)
                     })
                     self.status = "waiting_for_engineer"
                     return True
+
             if self.semantic_analyzer:
-                mod = self.modules[self.current_module_index]
                 mod_key = mod["filename"]
                 mod_deps = mod.get("dependencies", [])
                 if mod_deps:
@@ -315,6 +369,7 @@ class Supervisor:
                             })
                             self.status = "waiting_for_engineer"
                             return True
+
             self._send_command("tester", "test", {"filepath": filepath})
             self.status = "waiting_for_tester"
         elif coder_status == "fallback":
@@ -324,6 +379,32 @@ class Supervisor:
             return True
         else:
             self.workspace.log_event(f"Coder error: {msg.payload.get('reason', '')}")
+
+            # Handle error during acceptance repair
+            if self.acceptance_repair_pending:
+                self.fix_attempts["__acceptance__"] = self.fix_attempts.get("__acceptance__", 0) + 1
+                if self.fix_attempts["__acceptance__"] > 3:
+                    self.workspace.log_event("Supervisor: Max acceptance repair attempts reached")
+                    self.status = "error"
+                    return True
+
+                # Use the actual acceptance entrypoint, not modules[0]
+                placeholder_module = self._get_acceptance_entrypoint_module()
+                ctx = self._build_repair_context(placeholder_module, "", include_all_modules=True)
+                ctx.failure_type = "final_acceptance"
+                ctx.acceptance_tests = self.acceptance_tests
+                ctx.acceptance_failure_details = [msg.payload.get("reason", "")]
+                ctx.api_errors.append("Final acceptance repair failed: Coder returned an error.")
+                self.acceptance_repair_pending = True
+
+                self._send_command("engineer", "generate_single_prompt", {
+                    "module_info": placeholder_module,
+                    "is_fix": True,
+                    "repair_context": vars(ctx)
+                })
+                self.status = "waiting_for_engineer"
+                return True
+
             if self.current_module_index < len(self.modules):
                 mod = self.modules[self.current_module_index]
                 self._send_command("engineer", "generate_single_prompt", {
@@ -361,8 +442,12 @@ class Supervisor:
             if self.current_module_index < len(self.modules):
                 self.status = "waiting_for_dependencies"
             else:
-                self.status = "completed"
-                self.workspace.log_event("Supervisor: project completed successfully")
+                if self.acceptance_tests:
+                    self._send_command("tester", "test", {"acceptance_tests": self.acceptance_tests})
+                    self.status = "waiting_for_acceptance_tests"
+                else:
+                    self.workspace.log_event("No acceptance tests available. Project cannot be marked completed.")
+                    self.status = "error"
 
         elif status in ("failed", "timeout", "runtime_failure"):
             self.workspace.log_event(f"Tester {status} for module index {self.current_module_index}")
@@ -405,3 +490,41 @@ class Supervisor:
                 self.status = "waiting_for_engineer"
 
         return True
+
+    def _handle_waiting_for_acceptance_tests(self) -> bool:
+        try:
+            msg = self.channel.receive("supervisor", timeout=0.1)
+        except queue.Empty:
+            return False
+
+        status = msg.payload.get("status")
+
+        if status == "passed":
+            self.status = "completed"
+            self.workspace.log_event("Supervisor: project completed successfully after acceptance tests")
+            return True
+
+        if status in ("failed", "timeout", "runtime_failure"):
+            self.fix_attempts["__acceptance__"] = self.fix_attempts.get("__acceptance__", 0) + 1
+            if self.fix_attempts["__acceptance__"] > 3:
+                self.workspace.log_event("Supervisor: Max acceptance repair attempts reached")
+                self.status = "error"
+                return True
+
+            # Use the actual acceptance entrypoint, not modules[0]
+            placeholder_module = self._get_acceptance_entrypoint_module()
+            ctx = self._build_repair_context(placeholder_module, "", include_all_modules=True)
+            ctx.failure_type = "final_acceptance"
+            ctx.acceptance_tests = self.acceptance_tests
+            ctx.acceptance_failure_details = msg.payload.get("tests", [])
+            ctx.api_errors.append("Final acceptance tests failed.")
+            self.acceptance_repair_pending = True
+            self._send_command("engineer", "generate_single_prompt", {
+                "module_info": placeholder_module,
+                "is_fix": True,
+                "repair_context": vars(ctx)
+            })
+            self.status = "waiting_for_engineer"
+            return True
+
+        return False
