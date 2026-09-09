@@ -5,6 +5,7 @@
 [![LLM](https://img.shields.io/badge/LLM-Powered-orange.svg)]()
 [![Multi-Agent](https://img.shields.io/badge/Architecture-Multi--Agent-green.svg)]()
 [![Version](https://img.shields.io/badge/Version-3.3-brightgreen.svg)]()
+
 MetaForge transforms a natural-language software idea into a runnable multi-module Python project using a coordinated team of LLM-powered agents.
 
 It is designed as an automated software-engineering pipeline that can design, generate, inspect, test, diagnose, repair, and validate generated projects before declaring them complete.
