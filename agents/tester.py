@@ -29,48 +29,145 @@ class Tester:
             payload={"status": "error", "reason": reason}
         )
 
-    def _run_acceptance_test(self, cli_file: str) -> dict:
+    def _run_generic_acceptance_tests(self, acceptance_tests: list, output_dir: str) -> dict:
+        if not isinstance(acceptance_tests, list) or not acceptance_tests:
+            return {"status": "unsupported", "reason": "No acceptance tests provided"}
+
+        results = []
         with tempfile.TemporaryDirectory() as test_dir:
-            res = self.executor.execute(cli_file, args=["--help"], timeout_seconds=10, working_directory=test_dir)
-            if res["return_code"] != 0:
-                return {"status": "runtime_failure", "reason": f"help returned {res['return_code']}: {res['stderr']}"}
+            for test in acceptance_tests:
+                if not isinstance(test, dict):
+                    results.append({
+                        "description": "Invalid test object",
+                        "passed": False,
+                        "status": "error",
+                        "actual_stdout": "",
+                        "stderr": "",
+                        "return_code": None,
+                        "error_reason": "Acceptance test is not a dictionary"
+                    })
+                    continue
 
-            res = self.executor.execute(cli_file, args=["add", "Test todo"], timeout_seconds=10, working_directory=test_dir)
-            if res["return_code"] != 0:
-                return {"status": "runtime_failure", "reason": f"add returned {res['return_code']}: {res['stderr']}"}
+                description = test.get("description", "")
+                entrypoint = test.get("entrypoint", "")
+                args = test.get("args", [])
+                expected_stdout = test.get("expected_stdout_contains", [])
+                expected_return_code = test.get("expected_return_code", 0)
+                timeout_seconds = test.get("timeout_seconds", 10)
 
-            res = self.executor.execute(cli_file, args=["list"], timeout_seconds=10, working_directory=test_dir)
-            if res["return_code"] != 0:
-                return {"status": "runtime_failure", "reason": f"list returned {res['return_code']}: {res['stderr']}"}
-            if "Test todo" not in res["stdout"]:
-                return {"status": "runtime_failure", "reason": f"list did not contain 'Test todo': {res['stdout']}"}
+                if not entrypoint or not isinstance(entrypoint, str) or not entrypoint.endswith(".py"):
+                    results.append({
+                        "description": description,
+                        "passed": False,
+                        "status": "missing_entrypoint",
+                        "actual_stdout": "",
+                        "stderr": "",
+                        "return_code": None,
+                        "error_reason": f"Entrypoint not found: {entrypoint}"
+                    })
+                    continue
 
-            todo_id = None
-            for line in res["stdout"].splitlines():
-                stripped = line.strip()
-                if stripped and stripped[0].isdigit():
-                    todo_id = stripped.split()[0]
-                    break
-            if todo_id is None:
-                return {"status": "runtime_failure", "reason": "Could not find a task ID in list output"}
+                filepath = os.path.join(output_dir, entrypoint)
+                if not os.path.isfile(filepath):
+                    results.append({
+                        "description": description,
+                        "passed": False,
+                        "status": "missing_entrypoint",
+                        "actual_stdout": "",
+                        "stderr": "",
+                        "return_code": None,
+                        "error_reason": f"Entrypoint not found: {entrypoint}"
+                    })
+                    continue
 
-            res = self.executor.execute(cli_file, args=["remove", todo_id], timeout_seconds=10, working_directory=test_dir)
-            if res["return_code"] != 0:
-                return {"status": "runtime_failure", "reason": f"remove {todo_id} returned {res['return_code']}: {res['stderr']}"}
+                try:
+                    result = self.executor.execute(
+                        filepath,
+                        working_directory=test_dir,
+                        timeout_seconds=timeout_seconds,
+                        args=args,
+                    )
+                except Exception as exc:
+                    results.append({
+                        "description": description,
+                        "passed": False,
+                        "status": "error",
+                        "actual_stdout": "",
+                        "stderr": "",
+                        "return_code": None,
+                        "error_reason": str(exc),
+                    })
+                    continue
 
-            res = self.executor.execute(cli_file, args=["list"], timeout_seconds=10, working_directory=test_dir)
-            if res["return_code"] != 0:
-                return {"status": "runtime_failure", "reason": f"list after remove returned {res['return_code']}: {res['stderr']}"}
-            if todo_id in res["stdout"]:
-                return {"status": "runtime_failure", "reason": f"ID {todo_id} still present after remove"}
+                actual_return_code = result.get("return_code")
+                actual_stdout = result.get("stdout", "")
+                actual_stderr = result.get("stderr", "")
+                executor_status = result.get("status")
 
-            return {"status": "accepted"}
+                if executor_status == "timeout":
+                    status = "timeout"
+                    passed = False
+                    error_reason = "Execution timed out"
+                elif executor_status == "error":
+                    status = "error"
+                    passed = False
+                    error_reason = actual_stderr or "Execution error"
+                else:
+                    stdout_ok = all(sub in actual_stdout for sub in expected_stdout)
+                    return_ok = actual_return_code == expected_return_code
+                    if stdout_ok and return_ok:
+                        status = "passed"
+                        passed = True
+                        error_reason = None
+                    else:
+                        status = "failed"
+                        passed = False
+                        error_reason = None
+
+                results.append({
+                    "description": description,
+                    "passed": passed,
+                    "status": status,
+                    "actual_stdout": actual_stdout,
+                    "stderr": actual_stderr,
+                    "return_code": actual_return_code,
+                    "error_reason": error_reason,
+                })
+
+        all_passed = all(r["passed"] for r in results)
+        return {
+            "status": "passed" if all_passed else "failed",
+            "tests": results,
+        }
 
     def process_command(self, message: Message) -> Message:
         if message.msg_type != "CommandMsg":
             return self._error_response(message.phase, "Invalid message type")
         if not isinstance(message.payload, dict):
             return self._error_response(message.phase, "Invalid payload")
+
+        acceptance_tests = message.payload.get("acceptance_tests")
+        if acceptance_tests is not None:
+            summary = self._run_generic_acceptance_tests(acceptance_tests, config.OUTPUT_DIR)
+            if summary["status"] == "unsupported":
+                self.workspace.log_event("Tester: no acceptance tests provided", message.phase)
+                return Message(
+                    sender="tester",
+                    receiver="supervisor",
+                    msg_type="ResultMsg",
+                    phase=message.phase,
+                    payload={"status": "unsupported", "reason": summary["reason"]}
+                )
+            self.workspace.save_test_result(message.phase, summary["status"], json.dumps(summary))
+            self.workspace.log_event(f"Tester acceptance summary: {summary['status']}", message.phase)
+            return Message(
+                sender="tester",
+                receiver="supervisor",
+                msg_type="ResultMsg",
+                phase=message.phase,
+                payload={"status": summary["status"], "tests": summary["tests"]}
+            )
+
         filepath = message.payload.get("filepath")
         if not isinstance(filepath, str) or not filepath.strip():
             return self._error_response(message.phase, "Missing or invalid filepath")
@@ -96,16 +193,10 @@ class Tester:
             if not isinstance(result, dict) or "status" not in result:
                 return self._error_response(message.phase, "Executor returned an invalid result for CLI testing")
             if result["status"] == "passed":
-                acceptance = self._run_acceptance_test(abs_file)
-                if acceptance["status"] == "runtime_failure":
-                    self.workspace.save_test_result(message.phase, "runtime_failure", json.dumps(acceptance))
-                    self.workspace.log_event(f"Tester acceptance failed: {abs_file}: {acceptance['reason']}", message.phase)
-                    return Message(sender="tester", receiver="supervisor", msg_type="ResultMsg",
-                                   phase=message.phase, payload={"filepath": abs_file, "status": "runtime_failure", "reason": acceptance["reason"]})
-                self.workspace.save_test_result(message.phase, "passed", json.dumps({"execution_status": "cli_acceptance_passed"}))
-                self.workspace.log_event(f"Tester successfully passed acceptance: {abs_file}", message.phase)
+                self.workspace.save_test_result(message.phase, "passed", json.dumps({"execution_status": "cli_help_tested"}))
+                self.workspace.log_event(f"Tester successfully tested CLI with --help: {abs_file}", message.phase)
                 return Message(sender="tester", receiver="supervisor", msg_type="ResultMsg",
-                               phase=message.phase, payload={"filepath": abs_file, "status": "passed", "execution_status": "cli_acceptance_passed"})
+                               phase=message.phase, payload={"filepath": abs_file, "status": "passed", "execution_status": "cli_help_tested"})
             elif result["status"] == "failed":
                 error_type = self.executor.classify_error(result["stderr"])
                 if error_type == "python_error":
