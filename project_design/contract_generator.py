@@ -97,8 +97,13 @@ class ContractGenerator:
                     if not isinstance(required_imports, list):
                         required_imports = []
 
+                    module_type = module.get("type", "library")
+                    if module_type not in ("library", "entrypoint"):
+                        module_type = "library"
+
                     contract = {
                         "module": filename,
+                        "type": module_type,
                         "dependencies": dependencies,
                         "exports": normalized_exports,
                         "required_imports": required_imports,
