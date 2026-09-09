@@ -4,8 +4,7 @@
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
 [![LLM](https://img.shields.io/badge/LLM-Powered-orange.svg)]()
 [![Multi-Agent](https://img.shields.io/badge/Architecture-Multi--Agent-green.svg)]()
-[![Version](https://img.shields.io/badge/Version-3.2-brightgreen.svg)]()
-
+[![Version](https://img.shields.io/badge/Version-3.3-brightgreen.svg)]()
 MetaForge transforms a natural-language software idea into a runnable multi-module Python project using a coordinated team of LLM-powered agents.
 
 It is designed as an automated software-engineering pipeline that can design, generate, inspect, test, diagnose, repair, and validate generated projects before declaring them complete.
@@ -72,59 +71,63 @@ MetaForge coordinates these stages through a message-passing architecture. The S
 
 ---
 
-## Version 3.2
+## Version 3.3
 
-Version 3.2 focuses on improving MetaForge's reliability when generating and repairing multi-module projects.
+Version 3.3 introduces a generic, project-agnostic acceptance testing engine.
 
-The main improvements include:
+Key improvements:
 
-- Semantic analysis for cross-module compatibility
-- Improved API Inspector integration
-- More effective multi-module runtime repair
-- Expanded context for repair operations
-- Improved diagnostic capabilities for investigating repair-loop failures
-- Isolated acceptance-test execution
-- Improved protection against stale runtime state between validation attempts
-- Real end-to-end validation using an LLM-powered Todo CLI application
-
-These improvements make the repair and validation process more reliable when generated modules interact with one another.
-
+- **Generic Acceptance Testing**: Tester no longer contains hardcoded Todo-specific logic.
+- **Entrypoint-Aware Validation**: Entrypoint modules (e.g., `cli.py`) skip structural API export checks but still pass through Tester and acceptance tests.
+- **Shared Runtime Isolation**: All acceptance tests run in a single temporary directory, preserving state between commands while preventing leakage between runs.
+- **Acceptance Criteria Injection**: Coder and repair prompts now include acceptance test requirements as mandatory behavioral contracts.
+- **More Robust Acceptance Generation**: Tests for CLI help, required arguments, and successful commands are generated more deterministically; file-system/project-specific tests are avoided unless explicitly required.
+- **Validated Scenarios**: Todo App, Temperature Converter, Password Generator, Calculator, and File Organizer have been used...
 ---
 
 ## Real-World Validation
 
-MetaForge v3.2 has been validated using a real multi-module Todo CLI application.
+MetaForge v3.3 has been validated using multiple real command-line projects.
 
-The generated application contains:
+Validated projects:
 
-- `storage.py`
-- `todo_manager.py`
-- `cli.py`
+- **Todo App** — `storage.py`, `todo_manager.py`, `cli.py`
+- **Temperature Converter** — `converter.py`, `cli.py`
+- **Password Generator** — `generator.py`, `cli.py`
+- **Calculator** — `calculator.py`, `cli.py`
 
-The complete MetaForge pipeline successfully generated, analyzed, repaired, tested, and validated the project.
+For each project, the complete MetaForge pipeline successfully:
 
-Final result:
+- generated the project structure
+- created module contracts
+- generated the source code
+- ran API and semantic validation
+- executed module-level tests
+- ran final acceptance tests
+- triggered repair only when needed
 
 ```
+Final result for all validated projects:
 status=completed
 ACCEPTANCE TEST PASSED
+
 ```
+This validation demonstrates that the generic acceptance-testing workflow works across different CLI project types.
 
-This validation demonstrates the complete workflow on the tested Todo CLI scenario.
-
-It does **not** imply that MetaForge guarantees successful generation for every arbitrary software project.
-
+It does **not** imply that MetaForge guarantees successful generation for every arbitrary software project. However, we have seen clear improvements in the percentage of generated projects that pass validation compared to earlier versions.
 ---
 
 ## Example Runs
 
 | Project Idea | Result | Notes |
 |---|---|---|
-| Simple greeting app | ✅ Completed | Basic generation and validation |
-| Calculator CLI with multiple modules | ✅ Completed | Multi-module generation and dependency handling |
-| Todo application | ✅ Completed | Multi-module analysis, repair, and acceptance testing validated |
+| Simple to do app | ✅ Completed | Generic acceptance testing validated |
+| Simple Temperature Converter CLI | ✅ Completed | Entrypoint and state isolation validated |
+| Simple password generator CLI | ✅ Completed | Random-output acceptance validated |
+| Simple calculator CLI | ✅ Completed | Multi-command arithmetic and CLI validation |
+| File organizer CLI | ✅ Completed | Generic CLI validation; file-specific tests deferred |
 
-The Todo application became the primary real-world scenario used to validate the reliability improvements introduced in v3.2.
+The Todo application became the primary real-world scenario used to validate the reliability improvements introduced in v3.3.
 
 ---
 
@@ -158,7 +161,7 @@ Enter a natural-language software idea when prompted.
 For example:
 
 ```
-A simple CLI Todo app with add, remove, list, and JSON storage
+A simple CLI Todo app.
 ```
 
 MetaForge will then coordinate the project through its generation and validation pipeline.
@@ -171,11 +174,9 @@ MetaForge includes unit tests, diagnostic tests, and end-to-end scenarios.
 
 Examples:
 
-```bash
-python tests/test_api_inspector.py
-python tests/diagnostic_repair_loop_state_investigation.py
-python tests/debug_full_todo_generation.py
-```
+- `tests/test_tester_generic_acceptance.py`
+- `tests/test_supervisor_acceptance_integration.py`
+- `tests/test_structure_designer_acceptance.py`
 
 The final test demonstrates the complete LLM-powered generation and validation workflow.
 
@@ -227,19 +228,18 @@ MetaForge/
 
 ## Current Limitations
 
-MetaForge is still an LLM-driven software-generation system and cannot guarantee correct generation for arbitrary project ideas.
+MetaForge v3.3 is validated primarily for **command-line Python projects**. It is still an LLM-driven generation system and cannot guarantee correct generation for every arbitrary project idea.
 
 Known limitations include:
 
-- Complex interactive applications may require additional testing support.
+- Non-CLI projects such as GUI, interactive, or web applications are not yet fully supported by the generic acceptance engine.
+- File-system/stateful operations that require pre-existing fixtures are only partially covered. File Organizer, for example, currently validates CLI help and required-argument handling, but file-rename-specific tests are deferred.
+- Acceptance tests are generic but not exhaustive. They focus on main success paths, help, and required-argument errors, and do not replace a complete project-specific test suite.
 - The underlying LLM may occasionally ignore strict generation constraints.
-- Semantic analysis depends on the quality of the available project context.
-- Contract and API validation cannot replace complete behavioral testing.
-- Acceptance-test coverage depends on the type of generated application.
+- Semantic analysis depends on the quality and completeness of the generated project context.
+- Contract and API validation cannot replace behavioural testing.
 - The repair process is bounded by configured repair limits.
-- Different project types may require specialized acceptance tests.
-- Generated architecture and semantic quality still depend partly on the selected LLM.
-
+- Generated architecture and code quality still depend partly on the selected LLM.
 ---
 
 ## Roadmap
@@ -249,12 +249,14 @@ Known limitations include:
 - ✅ **v3.0-beta** — Context Manager, Debugger, Knowledge Base, Self-Repair Loop, and multi-module coordination
 - ✅ **v3.1** — Contract Generator, Contract-Aware Coder, API Inspector, and Supervisor validation gate
 - ✅ **v3.2** — Semantic Analysis, improved multi-module repair, diagnostic investigation, isolated acceptance testing, and real Todo end-to-end validation
+- ✅ **v3.3** — Generic acceptance testing, entrypoint-aware validation, shared runtime isolation, and multi-project validation
 - ⬜ **v4.0** — Web UI
 
 ---
 
 ## Version History
 
+- **v3.3** — Generic Acceptance Testing, Entrypoint-Aware Validation, Shared Runtime Isolation, and Multi-Project E2E Validation
 - **v3.2** — Reliability improvements, Semantic Analyzer, improved multi-module repair, isolated acceptance testing, and real Todo end-to-end validation
 - **v3.1** — Contract Layer, `contracts.json`, Contract-Aware Coder, API Inspector, and Supervisor validation gate
 - **v3.0-beta** — Context Manager, Debugger, Knowledge Base, Self-Repair Loop, and multi-module coordination
