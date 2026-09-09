@@ -74,6 +74,21 @@ class Coder:
         contract = self._load_contract(filename)
         module_info["exports"] = contract.get("exports", [])
         module_info["required_imports"] = contract.get("required_imports", [])
+
+        # NEW: If this is an entrypoint module, include acceptance tests
+        # so the LLM sees the executable behavior expected from the CLI.
+        try:
+            structure = self.workspace.read_structure()
+            phases = structure.get("phases", [])
+            for phase in phases:
+                for mod in phase.get("modules", []):
+                    if mod.get("filename") == filename and mod.get("type") == "entrypoint":
+                        module_info["acceptance_tests"] = structure.get("acceptance_tests", [])
+                        break
+        except Exception:
+            # Never block generation if reading structure fails.
+            pass
+
         return module_info
 
     def _build_repair_prompt(self, repair_context: dict) -> str:
@@ -96,6 +111,35 @@ class Coder:
         if ctx.get("debugger_analysis"):
             d = ctx["debugger_analysis"]
             lines.append(f"- [DEBUGGER] {d.get('diagnosis','')}: {d.get('suggested_fix','')}")
+
+        # NEW: Include acceptance tests so the repaired entrypoint
+        # matches the expected CLI contract.
+        acceptance_tests = ctx.get("acceptance_tests", [])
+        if acceptance_tests:
+            lines.append("")
+            lines.append("ACCEPTANCE TESTS THAT MUST PASS:")
+            for test in acceptance_tests:
+                lines.append(f"- Description: {test.get('description','')}")
+                lines.append(f"  Entrypoint: {test.get('entrypoint','')}")
+                lines.append(f"  Args: {test.get('args', [])}")
+                lines.append(f"  Expected stdout contains: {test.get('expected_stdout_contains', [])}")
+                lines.append(f"  Expected return code: {test.get('expected_return_code', 0)}")
+
+        failure_details = ctx.get("acceptance_failure_details", [])
+        if failure_details:
+            lines.append("")
+            lines.append("PREVIOUS ACCEPTANCE FAILURE DETAILS:")
+            for detail in failure_details:
+                if isinstance(detail, dict):
+                    lines.append(f"- Description: {detail.get('description','')}")
+                    lines.append(f"  Args: {detail.get('args', [])}")
+                    lines.append(f"  Expected stdout: {detail.get('expected_stdout_contains', [])}")
+                    lines.append(f"  Actual stdout: {detail.get('actual_stdout','')}")
+                    lines.append(f"  Actual stderr: {detail.get('stderr','')}")
+                    lines.append(f"  Return code: {detail.get('return_code','')}")
+                else:
+                    lines.append(f"- {detail}")
+
         lines.append("")
         lines.append("INSTRUCTION:")
         lines.append("Modify the CURRENT CODE above ONLY to fix the reported errors.")
