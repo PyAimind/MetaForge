@@ -152,6 +152,32 @@ class CodeGeneratorLLM:
             if context_lines:
                 user_message += "\n".join(context_lines)
                 user_message += "\n"
+
+        # NEW: If the module is an entrypoint, add acceptance tests
+        # as mandatory behavioral contracts.
+        acceptance_tests = module_info.get("acceptance_tests", [])
+        if acceptance_tests:
+            lines = []
+            lines.append("\nThe following acceptance tests are mandatory and define the expected CLI behavior.")
+            lines.append("You MUST implement the CLI so that all of these tests pass exactly.")
+            lines.append("Pay special attention to:")
+            lines.append("- If any test has args equal to [] and expected_return_code is not 0, then no arguments must be treated as an error with that exact return code. This means required arguments must not have default values.")
+            lines.append("- If any test uses a specific argument (e.g., --length 12) with expected_return_code 0, that argument must be supported and produce output containing the expected substrings.")
+            lines.append("- Output must match the expected_stdout_contains substrings.")
+            lines.append("Do NOT assume defaults or optional behavior unless the tests explicitly allow it.")
+            lines.append("")
+            lines.append("Acceptance tests:")
+            for test in acceptance_tests:
+                desc = test.get("description", "")
+                args = test.get("args", [])
+                expected = test.get("expected_stdout_contains", [])
+                rc = test.get("expected_return_code", 0)
+                lines.append(f"- {desc}")
+                lines.append(f"  Command args: {args}")
+                lines.append(f"  Expected stdout substrings: {expected}")
+                lines.append(f"  Expected return code: {rc}")
+            user_message += "\n" + "\n".join(lines)
+
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message}
