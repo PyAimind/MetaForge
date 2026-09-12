@@ -29,3 +29,5 @@ projects/
 
 # Knowledge base (generated state)
 memory/knowledge_base.json
+
+run_ui.py
