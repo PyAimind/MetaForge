@@ -1,10 +1,12 @@
 import os
 import sys
 import time
+import uuid
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 from workspace.workspace_manager import WorkspaceManager
 from communication.message_channel import MessageChannel
+from communication.events import EventEmitter
 from llm_provider import LLMProvider
 from project_design.structure_designer_llm import StructureDesignerLLM
 from project_design.code_generator_llm import CodeGeneratorLLM
@@ -123,6 +125,18 @@ def print_diagnostic_summary(final_status):
     print("===================================================")
 
 
+# --- v4.0 Event stream wiring (Task 0.1) ---
+# Structured event emission is opt-in via METAFORGE_STRUCTURED=1.
+# When disabled, the emitter is a no-op and CLI behavior is unchanged.
+emitter = None
+try:
+    structured = os.getenv("METAFORGE_STRUCTURED", "0") == "1"
+    run_id = str(uuid.uuid4())
+    emitter = EventEmitter(run_id=run_id, structured=structured)
+except Exception:
+    emitter = None
+
+
 try:
     wm = WorkspaceManager()
     channel = DiagnosticMessageChannel()
@@ -158,6 +172,9 @@ try:
 
     print(f"[TIME] Application started")
     print(f"[TIME] Project idea received: {project_idea}")
+
+    if emitter is not None:
+        emitter.emit("run_started", {"idea": project_idea})
 
     try:
         supervisor.set_idea(project_idea)
@@ -199,17 +216,48 @@ try:
 
     except KeyboardInterrupt:
         print("\n[INTERRUPTED] User interrupted execution.")
+        if emitter is not None:
+            try:
+                emitter.emit("run_interrupted", {
+                    "total_runtime": time.monotonic() - overall_start,
+                })
+            except Exception:
+                pass
         print_diagnostic_summary("interrupted")
         sys.exit(1)
 
     if supervisor.status == "completed":
         print("MetaForge project completed.")
+        if emitter is not None:
+            try:
+                emitter.emit("run_completed", {
+                    "total_runtime": time.monotonic() - overall_start,
+                    "iterations": loop_iterations,
+                })
+            except Exception:
+                pass
         print_diagnostic_summary("completed")
     else:
         print("MetaForge project failed with error.")
+        if emitter is not None:
+            try:
+                emitter.emit("run_failed", {
+                    "reason": "supervisor_error",
+                    "total_runtime": time.monotonic() - overall_start,
+                })
+            except Exception:
+                pass
         print_diagnostic_summary("error")
     print(f"Output: {config.OUTPUT_DIR}")
 
 except Exception as e:
     print(f"Startup error: {e}")
+    if emitter is not None:
+        try:
+            emitter.emit("run_failed", {
+                "reason": f"startup_error: {type(e).__name__}",
+                "total_runtime": time.monotonic() - overall_start,
+            })
+        except Exception:
+            pass
     sys.exit(1)
