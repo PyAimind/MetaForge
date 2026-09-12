@@ -1,4 +1,31 @@
+# Python
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
+.Python
+build/
+dist/
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment
 .env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# MetaForge runtime output
+output/
+workspace/*.json
+projects/
+
+# Knowledge base (generated state)
+memory/knowledge_base.json
