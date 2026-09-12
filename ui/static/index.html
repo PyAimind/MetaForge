@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MetaForge</title>
+  <link rel="icon" href="/static/assets/favicon.svg" />
+  <link rel="stylesheet" href="/static/css/theme.css" />
+  <link rel="stylesheet" href="/static/css/layout.css" />
+  <link rel="stylesheet" href="/static/css/components.css" />
+</head>
+<body>
+  <div id="galaxy"></div>
+  <div id="overlay" class="overlay"></div>
+
+  <header class="topbar">
+    <div class="brand">PyAimind</div>
+    <button id="menu-toggle" class="menu-toggle" aria-label="Menu">
+      <span></span><span></span><span></span>
+    </button>
+  </header>
+
+  <aside id="drawer" class="drawer">
+    <div class="drawer-header">
+      <span>Projects</span>
+      <button id="drawer-close" class="drawer-close">×</button>
+    </div>
+    <div id="projects-list" class="projects-list"></div>
+    <button id="new-project" class="new-project">+ New Project</button>
+  </aside>
+
+  <main class="home">
+    <img class="logo" src="/static/assets/logo.svg" alt="MetaForge" />
+    <h1 class="headline">What do you want to build?</h1>
+    <form id="idea-form" class="idea-form">
+      <input id="idea-input" type="text" placeholder="Describe your project..." autocomplete="off" />
+      <button type="submit" aria-label="Send">→</button>
+    </form>
+  </main>
+
+  <script type="module" src="/static/js/app.js"></script>
+</body>
+</html>

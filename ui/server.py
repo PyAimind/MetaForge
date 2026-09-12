@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from project_store import ProjectStore
@@ -18,6 +20,11 @@ PROJECTS_DIR = os.getenv("METAFORGE_PROJECTS_DIR", "projects")
 store = ProjectStore(PROJECTS_DIR)
 manager = RunManager(store)
 app = FastAPI(title="MetaForge v4.0 API")
+
+STATIC_DIR = Path(__file__).parent / "static"
+
+if STATIC_DIR.is_dir():
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 class CreateProjectRequest(BaseModel):
@@ -67,6 +74,12 @@ def _read_events(project_id: str) -> list:
     except Exception:
         return []
     return events
+
+
+@app.get("/")
+async def index():
+    """Serve the UI shell."""
+    return FileResponse(STATIC_DIR / "index.html")
 
 
 @app.post("/api/projects")

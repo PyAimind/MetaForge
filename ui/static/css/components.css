@@ -1,0 +1,126 @@
+.brand {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-1);
+  font-size: 0.95rem;
+}
+
+.menu-toggle {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 8px;
+}
+
+.menu-toggle span {
+  display: block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--text-1);
+  transition: opacity 0.15s ease;
+}
+
+.menu-toggle:hover span {
+  opacity: 0.7;
+}
+
+.logo {
+  width: 40vw;
+  min-width: 140px;
+  max-width: 220px;
+  opacity: 0.95;
+  margin-bottom: 40px;
+}
+
+.headline {
+  font-size: 1.5rem;
+  color: var(--text-2);
+  margin: 0 0 32px;
+  font-weight: 400;
+  text-align: center;
+}
+
+.idea-form {
+  display: flex;
+  align-items: center;
+  width: min(640px, 90vw);
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 8px 8px 8px 20px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.idea-form:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-glow);
+}
+
+.idea-form input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text-1);
+  font-size: 1rem;
+  outline: none;
+  padding: 8px 0;
+}
+
+.idea-form input::placeholder {
+  color: var(--text-2);
+}
+
+.idea-form button {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: white;
+  border: none;
+  cursor: pointer;
+  font-size: 1.1rem;
+  transition: box-shadow 0.2s ease, transform 0.15s ease;
+}
+
+.idea-form button:hover {
+  box-shadow: 0 0 20px var(--accent-glow);
+}
+
+.idea-form button:active {
+  transform: scale(0.96);
+}
+
+.new-project {
+  margin: 12px;
+  padding: 10px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-1);
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: background 0.2s ease;
+}
+
+.new-project:hover {
+  background: var(--surface-2);
+}
+
+.drawer-close {
+  background: transparent;
+  border: none;
+  color: var(--text-2);
+  font-size: 1.5rem;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0 4px;
+  transition: color 0.15s ease;
+}
+
+.drawer-close:hover {
+  color: var(--text-1);
+}
