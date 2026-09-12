@@ -165,7 +165,9 @@ try:
 
     agents = [engineer, coder, tester]
 
-    project_idea = input("Enter your project idea: ").strip()
+    project_idea = os.getenv("METAFORGE_IDEA", "").strip()
+    if not project_idea:
+        project_idea = input("Enter your project idea: ").strip()
     if not project_idea:
         print("Project idea cannot be empty.")
         sys.exit(1)
