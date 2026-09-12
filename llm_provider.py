@@ -3,6 +3,9 @@ import json
 import time
 import requests
 
+import config
+
+
 class LLMProvider:
     def __init__(self):
         api_key = os.getenv("DEEPSEEK_API_KEY")
@@ -13,8 +16,27 @@ class LLMProvider:
         self.max_requests: int = int(os.getenv("MAX_LLM_REQUESTS", 40))
         self.base_url = os.getenv("LLM_BASE_URL", "https://api.deepseek.com/v1/chat/completions")
         self.request_count = 0
-        self.timeout = 60
+        self.timeout = getattr(config, "LLM_READ_TIMEOUT", 120)
+        self.retry_attempts = getattr(config, "LLM_RETRY_ATTEMPTS", 2)
+        self.retry_delay = getattr(config, "LLM_RETRY_DELAY", 2.0)
         self.session: requests.Session = requests.Session()
+
+    def _post_with_retry(self, url: str, payload: dict, headers: dict) -> requests.Response:
+        """POST with a small retry loop on read timeout and connection errors."""
+        last_exc = None
+        for attempt in range(self.retry_attempts):
+            try:
+                return self.session.post(
+                    url,
+                    json=payload,
+                    headers=headers,
+                    timeout=(10, self.timeout),
+                )
+            except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectionError) as exc:
+                last_exc = exc
+                if attempt < self.retry_attempts - 1:
+                    time.sleep(self.retry_delay)
+        raise last_exc
 
     def generate(self, messages: list[dict], model: str = "deepseek-chat", max_tokens: int = 2000, temperature: float = 0.7) -> str:
         if (
@@ -41,7 +63,7 @@ class LLMProvider:
             "temperature": temperature
         }
 
-        resp = self.session.post(self.base_url, json=payload, headers=headers, timeout=(10, self.timeout))
+        resp = self._post_with_retry(self.base_url, payload, headers)
 
         if resp.status_code != 200:
             raise ConnectionError(f"DeepSeek API returned status {resp.status_code}: {resp.text}")
