@@ -3,6 +3,12 @@ import { initGalaxy, hideGalaxy, showGalaxy } from "./galaxy.js";
 import { initHome } from "./home.js";
 import { initProject, openProject, showHomeView } from "./project.js";
 import { promptDialog, confirmDialog } from "./modal.js";
+import {
+  initThinking,
+  connectToRun,
+  disconnect as disconnectThinking,
+  restoreIfActive,
+} from "./thinking.js";
 
 let _pollTimer = null;
 let _currentProjectId = null;
@@ -137,8 +143,9 @@ async function loadProjects() {
 async function handleIdea(idea) {
   const name = _defaultName(idea);
   try {
-    await createProject(name, idea);
+    const result = await createProject(name, idea);
     hideGalaxy();
+    connectToRun(result.id);
     loadProjects();
   } catch (error) {
     alert(`Failed to start project: ${error.message}`);
@@ -167,6 +174,7 @@ function initDrawer() {
     newBtn.addEventListener("click", () => {
       _closeDrawer();
       _currentProjectId = null;
+      disconnectThinking();
       showHomeView();
       showGalaxy();
       if (ideaInput) ideaInput.focus();
@@ -174,12 +182,22 @@ function initDrawer() {
   }
 }
 
-function main() {
+
+
+async function main() {
   initGalaxy();
   initProject();
+  initThinking();
   initDrawer();
   initHome({ onIdeaSubmitted: handleIdea });
   loadProjects();
+
+
+
+  const restored = await restoreIfActive();
+  if (restored) {
+    hideGalaxy();
+  }
 }
 
 main();

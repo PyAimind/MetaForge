@@ -31,12 +31,15 @@
   </aside>
 
   <main id="view-home" class="home" style="display: flex">
-    <img class="logo" src="/static/assets/logo.svg" alt="MetaForge" />
-    <h1 class="headline">What do you want to build?</h1>
-    <form id="idea-form" class="idea-form">
-      <input id="idea-input" type="text" placeholder="Describe your project..." autocomplete="off" />
-      <button type="submit" aria-label="Send">→</button>
-    </form>
+    <div class="home-hero">
+      <img class="logo" src="/static/assets/logo.svg" alt="MetaForge" />
+      <h1 class="headline">What do you want to build?</h1>
+      <form id="idea-form" class="idea-form">
+        <input id="idea-input" type="text" placeholder="Describe your project..." autocomplete="off" />
+        <button type="submit" aria-label="Send">→</button>
+      </form>
+    </div>
+    <section id="timeline" class="timeline"></section>
   </main>
 
   <main id="view-project" class="project-view" style="display: none">

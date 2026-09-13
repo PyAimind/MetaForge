@@ -58,6 +58,7 @@ export function showHomeView() {
   if (project) project.style.display = "none";
   clearCode();
   showGalaxy();
+  document.dispatchEvent(new CustomEvent("metaforge:home"));
 }
 
 export async function openProject(projectId) {
