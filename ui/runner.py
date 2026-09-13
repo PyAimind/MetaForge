@@ -8,10 +8,29 @@ import collections
 import json
 import os
 import queue
+import shutil
 import subprocess
 import sys
 import threading
 from typing import Optional
+
+import config
+
+
+def _clear_output_dir() -> None:
+    """Remove all files from config.OUTPUT_DIR so a new run starts fresh."""
+    out = getattr(config, "OUTPUT_DIR", None)
+    if not out or not os.path.isdir(out):
+        return
+    for name in os.listdir(out):
+        path = os.path.join(out, name)
+        try:
+            if os.path.isfile(path) or os.path.islink(path):
+                os.remove(path)
+            elif os.path.isdir(path):
+                shutil.rmtree(path)
+        except Exception:
+            pass
 
 
 class RunManager:
@@ -82,6 +101,13 @@ class RunManager:
                 proc.wait(timeout=5)
             except Exception:
                 pass
+            # Snapshot the generated modules into the project folder.
+            try:
+                out_dir = getattr(config, "OUTPUT_DIR", None)
+                if out_dir:
+                    self.store.copy_output(project_id, out_dir)
+            except Exception:
+                pass
             self.store.update_status(project_id, self._final_status(last_type))
         except Exception:
             try:
@@ -105,6 +131,9 @@ class RunManager:
             if not project_id:
                 raise RuntimeError("Failed to create project")
             self.store.update_status(project_id, "running")
+
+            # Clear the shared output directory so this run starts fresh.
+            _clear_output_dir()
 
             env = dict(os.environ)
             env["METAFORGE_STRUCTURED"] = "1"

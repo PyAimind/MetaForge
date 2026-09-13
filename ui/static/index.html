@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="/static/css/theme.css" />
   <link rel="stylesheet" href="/static/css/layout.css" />
   <link rel="stylesheet" href="/static/css/components.css" />
+  <link rel="stylesheet" href="/static/vendor/atom-one-dark.min.css" />
 </head>
 <body>
   <div id="galaxy"></div>
@@ -29,7 +30,7 @@
     <button id="new-project" class="new-project">+ New Project</button>
   </aside>
 
-  <main class="home">
+  <main id="view-home" class="home" style="display: flex">
     <img class="logo" src="/static/assets/logo.svg" alt="MetaForge" />
     <h1 class="headline">What do you want to build?</h1>
     <form id="idea-form" class="idea-form">
@@ -38,6 +39,43 @@
     </form>
   </main>
 
+  <main id="view-project" class="project-view" style="display: none">
+    <div class="project-header">
+      <button id="project-back" class="project-back" aria-label="Back">←</button>
+      <div class="project-meta">
+        <h2 id="project-title" class="project-title"></h2>
+        <span id="project-status" class="project-status"></span>
+      </div>
+    </div>
+    <div class="project-body">
+      <aside class="modules-sidebar">
+        <h3 class="modules-heading">Modules</h3>
+        <div id="modules-list" class="modules-list"></div>
+      </aside>
+      <section class="code-panel">
+        <div class="code-panel-header">
+          <span id="code-filename" class="code-filename">Select a module</span>
+          <button id="code-copy" class="code-copy" hidden>Copy</button>
+        </div>
+        <pre class="code-pre"><code id="code-content" class="code-content"></code></pre>
+      </section>
+    </div>
+  </main>
+
+  <div id="modal" class="modal" style="display: none">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+      <h3 id="modal-title" class="modal-title"></h3>
+      <p id="modal-message" class="modal-message"></p>
+      <input id="modal-input" class="modal-input" type="text" style="display: none" />
+      <div class="modal-actions">
+        <button id="modal-cancel" class="modal-btn modal-btn-cancel">Cancel</button>
+        <button id="modal-confirm" class="modal-btn modal-btn-confirm">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/vendor/highlight.min.js"></script>
   <script type="module" src="/static/js/app.js"></script>
 </body>
 </html>

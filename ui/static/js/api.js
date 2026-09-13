@@ -36,3 +36,11 @@ export async function renameProject(id, name) {
 export async function deleteProject(id) {
   return _request(`/api/projects/${id}`, { method: "DELETE" });
 }
+
+export async function listModules(id) {
+  return _request(`/api/projects/${id}/modules`);
+}
+
+export async function getModule(id, filename) {
+  return _request(`/api/projects/${id}/modules/${encodeURIComponent(filename)}`);
+}
