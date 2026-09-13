@@ -31,10 +31,85 @@ LOOP_DELAY = 0.01
 
 class DiagnosticMessageChannel(MessageChannel):
     """MessageChannel wrapper that logs message summaries without altering behavior."""
-    def __init__(self):
+    def __init__(self, emitter=None):
         super().__init__()
+        self.emitter = emitter
         self.total_sent = 0
         self.total_received = 0
+
+    def _short_name(self, path):
+        if not isinstance(path, str) or not path.strip():
+            return ""
+        return os.path.basename(path)
+
+    def _emit_entry(self, title, detail, color, icon):
+        try:
+            self.emitter.emit("timeline_entry", {
+                "title": title,
+                "detail": detail,
+                "color": color,
+                "icon": icon,
+            })
+        except Exception:
+            pass
+
+    def _emit_timeline(self, message):
+        if self.emitter is None:
+            return
+        try:
+            payload = message.payload or {}
+            sender = message.sender
+            receiver = message.receiver
+            action = payload.get("action", "")
+            status = payload.get("status", "")
+            is_fix = bool(payload.get("is_fix", False))
+            filepath = payload.get("filepath") or payload.get("filename") or ""
+            filename = self._short_name(filepath)
+            has_filepath = bool(payload.get("filepath"))
+            has_acceptance = "acceptance_tests" in payload
+
+            if sender == "supervisor" and receiver == "engineer":
+                if action == "design_structure":
+                    self._emit_entry("Understanding your idea", "Analyzing requirements...", "blue", "spinner")
+                elif action == "generate_prompts":
+                    self._emit_entry("Planning the project", "Creating structure and contracts...", "blue", "spinner")
+                elif is_fix:
+                    self._emit_entry("Refining the solution", "Analyzing issues...", "orange", "spinner")
+                return
+
+            if sender == "supervisor" and receiver == "coder":
+                if action == "code" and not is_fix and filename:
+                    self._emit_entry(f"Writing {filename}", "Generating code...", "purple", "spinner")
+                return
+
+            if sender == "coder" and receiver == "supervisor":
+                if status == "success" and filename:
+                    self._emit_entry(f"{filename} written", "", "purple", "check")
+                return
+
+            if sender == "supervisor" and receiver == "tester":
+                if has_acceptance:
+                    count = len(payload.get("acceptance_tests", []))
+                    self._emit_entry("Running final verification", f"{count} tests", "cyan", "spinner")
+                elif has_filepath and filename:
+                    self._emit_entry(f"Testing {filename}", "Running tests...", "cyan", "spinner")
+                return
+
+            if sender == "tester" and receiver == "supervisor":
+                if status == "passed":
+                    if has_filepath and filename:
+                        self._emit_entry(f"{filename} passed", "", "green", "check")
+                    else:
+                        self._emit_entry("Verification passed", "", "green", "check")
+                elif status in ("failed", "timeout", "runtime_failure"):
+                    reason = str(payload.get("reason", ""))[:80]
+                    if has_filepath and filename:
+                        self._emit_entry(f"{filename} failed", reason, "orange", "cross")
+                    else:
+                        self._emit_entry("Verification failed", "Fixing issues...", "orange", "cross")
+                return
+        except Exception:
+            pass
 
     def send(self, message):
         self.total_sent += 1
@@ -56,7 +131,7 @@ class DiagnosticMessageChannel(MessageChannel):
                 print(f"action={action}", end="")
             if "acceptance_tests" in payload:
                 print(f" | acceptance_test | count={len(payload['acceptance_tests'])}", end="")
-        else:  # ResultMsg
+        else:
             status = payload.get("status", "")
             print(f"status={status}", end="")
             if "filepath" in payload:
@@ -66,6 +141,7 @@ class DiagnosticMessageChannel(MessageChannel):
             if "prompts" in payload:
                 print(f" | type=prompts | count={len(payload['prompts'])}", end="")
         print()
+        self._emit_timeline(message)
         super().send(message)
 
     def receive(self, agent_name, timeout=None):
@@ -94,7 +170,6 @@ def build_dependencies():
 os.makedirs(config.WORKSPACE_DIR, exist_ok=True)
 os.makedirs(config.OUTPUT_DIR, exist_ok=True)
 
-# Diagnostic counters and timers
 overall_start = time.monotonic()
 loop_iterations = 0
 supervisor_steps = 0
@@ -125,9 +200,6 @@ def print_diagnostic_summary(final_status):
     print("===================================================")
 
 
-# --- v4.0 Event stream wiring (Task 0.1) ---
-# Structured event emission is opt-in via METAFORGE_STRUCTURED=1.
-# When disabled, the emitter is a no-op and CLI behavior is unchanged.
 emitter = None
 try:
     structured = os.getenv("METAFORGE_STRUCTURED", "0") == "1"
@@ -137,129 +209,127 @@ except Exception:
     emitter = None
 
 
-try:
-    wm = WorkspaceManager()
-    channel = DiagnosticMessageChannel()
-    designer, generator, executor, ctx, kb, debugger = build_dependencies()
-    engineer = Engineer(channel, wm, designer, knowledge_base=kb)
-    coder = Coder(channel, wm, generator, ctx, knowledge_base=kb)
-    tester = Tester(channel, wm, executor)
-
-    api_inspector = None
+if __name__ == "__main__":
     try:
-        from agents.api_inspector import APIInspector
-        api_inspector = APIInspector()
-    except Exception:
-        print("WARNING: APIInspector not available. API checks disabled.")
+        wm = WorkspaceManager()
+        channel = DiagnosticMessageChannel(emitter=emitter)
+        designer, generator, executor, ctx, kb, debugger = build_dependencies()
+        engineer = Engineer(channel, wm, designer, knowledge_base=kb)
+        coder = Coder(channel, wm, generator, ctx, knowledge_base=kb)
+        tester = Tester(channel, wm, executor)
 
-    semantic_analyzer = None
-    if _HAS_SEMANTIC:
+        api_inspector = None
         try:
-            semantic_analyzer = SemanticAnalyzer()
-        except Exception as e:
-            print(f"WARNING: Could not instantiate SemanticAnalyzer: {e}")
+            from agents.api_inspector import APIInspector
+            api_inspector = APIInspector()
+        except Exception:
+            print("WARNING: APIInspector not available. API checks disabled.")
 
-    supervisor = Supervisor(channel, wm, debugger,
-                            api_inspector=api_inspector,
-                            semantic_analyzer=semantic_analyzer)
-
-    agents = [engineer, coder, tester]
-
-    project_idea = os.getenv("METAFORGE_IDEA", "").strip()
-    if not project_idea:
-        project_idea = input("Enter your project idea: ").strip()
-    if not project_idea:
-        print("Project idea cannot be empty.")
-        sys.exit(1)
-
-    print(f"[TIME] Application started")
-    print(f"[TIME] Project idea received: {project_idea}")
-
-    if emitter is not None:
-        emitter.emit("run_started", {"idea": project_idea})
-
-    try:
-        supervisor.set_idea(project_idea)
-        while True:
-            loop_iterations += 1
-            print(f"\n[LOOP] iteration={loop_iterations}")
-
-            # Supervisor step
-            sup_start = time.monotonic()
-            prev_status = supervisor.status
-            prev_index = supervisor.current_module_index
-            keep_going = supervisor.step()
-            sup_dur = time.monotonic() - sup_start
-            supervisor_steps += 1
-            total_supervisor_time += sup_dur
-            if supervisor.status != prev_status:
-                print(f"[STATE] {prev_status} -> {supervisor.status} | module_index={supervisor.current_module_index}")
-            print(f"[TIME] Supervisor.step END | duration={sup_dur:.2f}s")
-
-            # Agent steps
-            for agent_name, agent in zip(["Engineer", "Coder", "Tester"], agents):
-                step_start = time.monotonic()
-                agent.step()
-                step_dur = time.monotonic() - step_start
-                if agent_name == "Engineer":
-                    engineer_steps += 1
-                    total_engineer_time += step_dur
-                elif agent_name == "Coder":
-                    coder_steps += 1
-                    total_coder_time += step_dur
-                elif agent_name == "Tester":
-                    tester_steps += 1
-                    total_tester_time += step_dur
-                print(f"[TIME] {agent_name}.step END | duration={step_dur:.2f}s")
-
-            if not keep_going and supervisor.status in ("completed", "error"):
-                break
-            time.sleep(LOOP_DELAY)
-
-    except KeyboardInterrupt:
-        print("\n[INTERRUPTED] User interrupted execution.")
-        if emitter is not None:
+        semantic_analyzer = None
+        if _HAS_SEMANTIC:
             try:
-                emitter.emit("run_interrupted", {
-                    "total_runtime": time.monotonic() - overall_start,
-                })
-            except Exception:
-                pass
-        print_diagnostic_summary("interrupted")
-        sys.exit(1)
+                semantic_analyzer = SemanticAnalyzer()
+            except Exception as e:
+                print(f"WARNING: Could not instantiate SemanticAnalyzer: {e}")
 
-    if supervisor.status == "completed":
-        print("MetaForge project completed.")
+        supervisor = Supervisor(channel, wm, debugger,
+                                api_inspector=api_inspector,
+                                semantic_analyzer=semantic_analyzer)
+
+        agents = [engineer, coder, tester]
+
+        project_idea = os.getenv("METAFORGE_IDEA", "").strip()
+        if not project_idea:
+            project_idea = input("Enter your project idea: ").strip()
+        if not project_idea:
+            print("Project idea cannot be empty.")
+            sys.exit(1)
+
+        print(f"[TIME] Application started")
+        print(f"[TIME] Project idea received: {project_idea}")
+
         if emitter is not None:
-            try:
-                emitter.emit("run_completed", {
-                    "total_runtime": time.monotonic() - overall_start,
-                    "iterations": loop_iterations,
-                })
-            except Exception:
-                pass
-        print_diagnostic_summary("completed")
-    else:
-        print("MetaForge project failed with error.")
+            emitter.emit("run_started", {"idea": project_idea})
+
+        try:
+            supervisor.set_idea(project_idea)
+            while True:
+                loop_iterations += 1
+                print(f"\n[LOOP] iteration={loop_iterations}")
+
+                sup_start = time.monotonic()
+                prev_status = supervisor.status
+                keep_going = supervisor.step()
+                sup_dur = time.monotonic() - sup_start
+                supervisor_steps += 1
+                total_supervisor_time += sup_dur
+                if supervisor.status != prev_status:
+                    print(f"[STATE] {prev_status} -> {supervisor.status} | module_index={supervisor.current_module_index}")
+                print(f"[TIME] Supervisor.step END | duration={sup_dur:.2f}s")
+
+                for agent_name, agent in zip(["Engineer", "Coder", "Tester"], agents):
+                    step_start = time.monotonic()
+                    agent.step()
+                    step_dur = time.monotonic() - step_start
+                    if agent_name == "Engineer":
+                        engineer_steps += 1
+                        total_engineer_time += step_dur
+                    elif agent_name == "Coder":
+                        coder_steps += 1
+                        total_coder_time += step_dur
+                    elif agent_name == "Tester":
+                        tester_steps += 1
+                        total_tester_time += step_dur
+                    print(f"[TIME] {agent_name}.step END | duration={step_dur:.2f}s")
+
+                if not keep_going and supervisor.status in ("completed", "error"):
+                    break
+                time.sleep(LOOP_DELAY)
+
+        except KeyboardInterrupt:
+            print("\n[INTERRUPTED] User interrupted execution.")
+            if emitter is not None:
+                try:
+                    emitter.emit("run_interrupted", {
+                        "total_runtime": time.monotonic() - overall_start,
+                    })
+                except Exception:
+                    pass
+            print_diagnostic_summary("interrupted")
+            sys.exit(1)
+
+        if supervisor.status == "completed":
+            print("MetaForge project completed.")
+            if emitter is not None:
+                try:
+                    emitter.emit("run_completed", {
+                        "total_runtime": time.monotonic() - overall_start,
+                        "iterations": loop_iterations,
+                    })
+                except Exception:
+                    pass
+            print_diagnostic_summary("completed")
+        else:
+            print("MetaForge project failed with error.")
+            if emitter is not None:
+                try:
+                    emitter.emit("run_failed", {
+                        "reason": "supervisor_error",
+                        "total_runtime": time.monotonic() - overall_start,
+                    })
+                except Exception:
+                    pass
+            print_diagnostic_summary("error")
+        print(f"Output: {config.OUTPUT_DIR}")
+
+    except Exception as e:
+        print(f"Startup error: {e}")
         if emitter is not None:
             try:
                 emitter.emit("run_failed", {
-                    "reason": "supervisor_error",
+                    "reason": f"startup_error: {type(e).__name__}",
                     "total_runtime": time.monotonic() - overall_start,
                 })
             except Exception:
                 pass
-        print_diagnostic_summary("error")
-    print(f"Output: {config.OUTPUT_DIR}")
-
-except Exception as e:
-    print(f"Startup error: {e}")
-    if emitter is not None:
-        try:
-            emitter.emit("run_failed", {
-                "reason": f"startup_error: {type(e).__name__}",
-                "total_runtime": time.monotonic() - overall_start,
-            })
-        except Exception:
-            pass
-    sys.exit(1)
+        sys.exit(1)
