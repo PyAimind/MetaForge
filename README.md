@@ -4,11 +4,11 @@
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
 [![LLM](https://img.shields.io/badge/LLM-Powered-orange.svg)]()
 [![Multi-Agent](https://img.shields.io/badge/Architecture-Multi--Agent-green.svg)]()
-
+[![Version](https://img.shields.io/badge/Version-4.0-brightgreen.svg)]()
 
 MetaForge transforms a natural-language software idea into a runnable multi-module Python project using a coordinated team of LLM-powered agents.
 
-**New in v4.0:** a desktop UI with live timeline, project history, and code viewer.
+**New in v4.0:** a desktop UI with a live timeline, project history, and a code viewer.
 
 ![MetaForge demo](docs/demos/demo-full.mp4)
 
@@ -50,7 +50,7 @@ Browse every generated module with syntax highlighting and one-click copy.
 
 ### Home Screen
 
-A minimal entry point with an animated galaxy background that recedes when work begins.
+A minimal entry point with a two-layer drifting fog background and a real-time Three.js glass logo. When a project starts, the hero shrinks smoothly and a live timeline expands below it.
 
 ![Home screen](docs/screenshots/01-home.png)
 
@@ -93,7 +93,7 @@ Main improvements:
 - **Live timeline** of every run, streamed in real time
 - **Project history** with persistent storage per project
 - **Code viewer** with syntax highlighting and copy support
-- **Dark theme** with animated galaxy background
+- **Dark theme** with a two-layer drifting fog background and a Three.js glass logo
 - **Modular frontend** built with pure HTML, CSS, and vanilla JavaScript
 - **No framework required** — no bundler, no build step
 - **Works offline** — all dependencies vendored locally
@@ -113,6 +113,7 @@ The CLI pipeline from v3.3 remains completely unchanged.
 - **Isolated Testing** — acceptance tests run in controlled environments with a shared temporary directory.
 - **Real-Time UI** — every event is streamed to the UI via WebSocket.
 - **Persistent History** — every project is stored with metadata, thinking log, and generated modules.
+- **Atmospheric Background** — Two-layer drifting fog rendered with CSS gradients, plus a real-time Three.js glass logo.
 - **End-to-End Automation** — the complete workflow runs from a natural-language idea to validated generated code.
 
 ---
@@ -176,10 +177,11 @@ python run_ui.py
 Then open `http://127.0.0.1:8765` in a browser.
 
 The UI provides:
+
 - Live timeline of every run
 - Project history with persistent storage
 - Code viewer for generated modules
-- Dark theme with animated background
+- Dark theme with a two-layer drifting fog background and a Three.js glass logo
 
 ---
 
@@ -230,6 +232,7 @@ Known limitations:
 - The underlying LLM is non-deterministic; identical ideas can produce different structures.
 - Semantic analysis depends on the quality of available context.
 - Repair loops are bounded by configured attempt limits.
+- The Three.js glass logo uses a procedural environment map, not a real HDRI. Reflections are approximated for performance and portability.
 
 ---
 
@@ -241,21 +244,35 @@ Known limitations:
 - ✅ **v3.1** — Contract Generator, Contract-Aware Coder, API Inspector
 - ✅ **v3.2** — Semantic Analysis, multi-module repair, isolated acceptance testing
 - ✅ **v3.3** — Generic Acceptance Testing, entrypoint-aware validation
-- ✅ **v4.0** — Desktop UI with live timeline, project history, and code viewer
+- ✅ **v4.0** — Desktop UI with a live timeline, project history, and a code viewer
 - ⬜ **v4.1** — Fixture-aware acceptance tests
+- ⬜ **v4.2** — Error handling UI, pause/resume, checkpointing
 - ⬜ **v5.0** — Web deployment and multi-project runtime
 
 ---
 
 ## Version History
 
-- **v4.0** — Desktop UI with live timeline, project history, and code viewer
+- **v4.0** — Desktop UI with a live timeline, project history, and a code viewer
 - **v3.3** — Generic acceptance testing engine and entrypoint-aware validation
 - **v3.2** — Semantic Analysis, improved multi-module repair, isolated acceptance testing
 - **v3.1** — Contract Layer, `contracts.json`, Contract-Aware Coder, API Inspector
 - **v3.0-beta** — Context Manager, Debugger, Knowledge Base, Self-Repair Loop
 - **v2.0** — Full LLM-powered agents with real API integration and diagnostics
 - **v1.0** — Simulated agents with mock responses
+
+---
+
+## Previous Versions
+
+Detailed architecture documentation for earlier versions is preserved in their respective release tags:
+
+- [v3.3 — Generic Acceptance Testing](https://github.com/PyAimind/MetaForge/releases/tag/v3.3)
+- [v3.2 — Semantic Analysis & Isolated Testing](https://github.com/PyAimind/MetaForge/releases/tag/v3.2)
+- [v3.1 — Contract Layer & API Inspector](https://github.com/PyAimind/MetaForge/releases/tag/v3.1)
+- [v3.0-beta — Self-Repair Infrastructure](https://github.com/PyAimind/MetaForge/releases/tag/v3.0-beta)
+
+For the current architecture, see the sections above.
 
 ---
 
@@ -271,3 +288,5 @@ For detailed architecture, internal workflows, repair-loop behavior, and impleme
 
 This project is licensed under the MIT License.
 ```
+
+---

@@ -15,7 +15,7 @@ Version 4.0 adds a **local UI layer** on top of the existing pipeline. The UI do
 - **Live Timeline UI** – A vertical animated timeline that grows as the pipeline runs, with auto-scroll and category-based colors.
 - **Project History UI** – A drawer listing all past projects with rename, delete, and reopen support.
 - **Code Viewer UI** – A syntax-highlighted viewer for every generated module, with a copy button.
-- **Dark Theme UI** – Animated galaxy background on the home screen, glass-like logo, and a minimal entry point.
+- **Atmospheric Home Screen** – A two-layer drifting fog background rendered entirely in CSS, and a real-time Three.js glass logo with procedural environment reflections.
 
 The core v3.3 pipeline remains completely unchanged.
 
@@ -45,11 +45,11 @@ The core v3.3 pipeline remains completely unchanged.
 
 ### v4.0 UI Components
 
-- **EventEmitter** (`communication/events.py`) – writes structured JSON Lines events to a stream (default: stderr). Schema version 1.
-- **ProjectStore** (`project_store.py`) – filesystem-backed store for project metadata, structure, contracts, thinking log, and output.
-- **RunManager** (`ui/runner.py`) – spawns `main.py` as a subprocess, reads structured events from stderr, appends them to the ProjectStore, and broadcasts them to WebSocket subscribers.
-- **FastAPI Server** (`ui/server.py`) – REST endpoints for projects, modules, and thinking logs, plus a WebSocket endpoint for live event streaming.
-- **Frontend** (`ui/static/`) – pure HTML, CSS, and vanilla JavaScript. Uses highlight.js for syntax highlighting. No framework, no bundler.
+- **EventEmitter** (`communication/events.py`) — writes structured JSON Lines events to a stream (default: stderr). Schema version 1.
+- **ProjectStore** (`project_store.py`) — filesystem-backed store for project metadata, structure, contracts, thinking log, and output.
+- **RunManager** (`ui/runner.py`) — spawns `main.py` as a subprocess, reads structured events from stderr, appends them to the ProjectStore, and broadcasts them to WebSocket subscribers. Only one subprocess is allowed at a time.
+- **FastAPI Server** (`ui/server.py`) — REST endpoints for projects, modules, and thinking logs, plus a WebSocket endpoint for live event streaming.
+- **Frontend** (`ui/static/`) — pure HTML, CSS, and vanilla JavaScript modules. Uses highlight.js for syntax highlighting and Three.js for the glass logo. No framework, no bundler, no CDN.
 
 ---
 
@@ -76,7 +76,7 @@ The core v3.3 pipeline remains completely unchanged.
 
 ### Coder (`agents/coder.py`)
 
-- Loads the module’s contract from `contracts.json` and injects it into the generation prompt.
+- Loads the module's contract from `contracts.json` and injects it into the generation prompt.
 - For entrypoint modules, includes acceptance tests in `module_info`.
 - In repair mode, uses the Engineer-provided prompt and parses multi-module JSON responses.
 
@@ -87,7 +87,7 @@ The core v3.3 pipeline remains completely unchanged.
 
 ### Debugger, Contract Generator, API Inspector, Semantic Analyzer
 
-- Unchanged from v3.3 except for ContractGenerator’s `type` preservation.
+- Unchanged from v3.3 except for ContractGenerator's `type` preservation.
 
 ---
 
@@ -103,7 +103,7 @@ The core v3.3 pipeline remains completely unchanged.
   "ts": 1788945678.123,
   "run_id": "uuid-v4",
   "type": "run_started | timeline_entry | run_completed | run_failed | run_interrupted",
-  "payload": { ... }
+  "payload": { "...": "..." }
 }
 ```
 
@@ -204,27 +204,34 @@ ui/static/
 ├── index.html
 ├── css/
 │   ├── theme.css        # variables, reset, scrollbar
-│   ├── layout.css       # topbar, home, drawer, project view
-│   └── components.css   # buttons, idea form, timeline, code viewer
+│   ├── layout.css       # fog background, topbar, home, drawer, project view
+│   └── components.css   # buttons, idea form, timeline, code viewer, modal
 ├── js/
 │   ├── app.js           # entry point, state, view switching
-│   ├── api.js           # fetch wrappers
+│   ├── api.js           # fetch wrappers for /api/*
 │   ├── home.js          # idea form
-│   ├── galaxy.js        # animated background
-│   ├── project.js       # project view and module list
-│   ├── code_viewer.js   # syntax highlighting and copy
+│   ├── galaxy.js        # fog background (name retained; renders fog, not a galaxy)
+│   ├── glasslogo.js     # Three.js glass logo scene
+│   ├── project.js       # project view, module list
+│   ├── code_viewer.js   # highlight.js wrapper, copy button
+│   ├── modal.js         # custom rename/delete modals
 │   └── thinking.js      # WebSocket client + timeline renderer
 ├── assets/
 │   ├── logo.svg
 │   └── favicon.svg
 └── vendor/
     ├── highlight.min.js
-    └── atom-one-dark.min.css
+    ├── atom-one-dark.min.css
+    └── three/
+        ├── three.module.js
+        ├── FontLoader.js
+        ├── TextGeometry.js
+        └── helvetiker_bold.typeface.json
 ```
 
 #### View States
 
-- **Home** – hero (logo, headline, idea form) plus optional timeline. When a run starts, the `running` class is added to `#view-home`.
+- **Home** – hero (glass logo, headline, idea form) plus optional timeline. When a run starts, the `running` class is added to `#view-home`.
 - **Project View** – module list sidebar + code panel. Opened by clicking a project in the drawer.
 - **Drawer** – right-side panel for project history.
 
@@ -232,20 +239,38 @@ ui/static/
 
 The `thinking.js` module connects to `/ws/run/{id}`, renders each `timeline_entry` as a vertical timeline row, auto-scrolls to the newest event, and closes the socket once a terminal event (`run_completed`, `run_failed`, `run_interrupted`) arrives.
 
+Timeline rows use semantic keys (`write:<file>`, `test:<file>`, `verify`) and update in place. For example, `"Writing storage.py"` (spinner) transitions to `"storage.py written"` (check) on the same row. Unnamed spinners (`"Understanding"`, `"Planning"`, `"Refining"`) auto-complete when the next event arrives or when the run terminates.
+
 The active project ID is stored in `localStorage` under `metaforge.active_project_id` so that reloading the page restores the timeline.
+
+#### Drawer
+
+Each project row in the drawer exposes two hover actions: `✎` (Rename) and `×` (Delete). Both use a custom modal (`modal.js`) instead of browser-native `prompt()` and `confirm()`, keeping the dark theme consistent and preventing jarring system dialogs.
 
 ---
 
-## Acceptance Test Generation (v3.3, still active)
+## Atmospheric Background and Glass Logo
+
+The `#galaxy` element is animated with two CSS pseudo-elements carrying radial gradients with a slow drift, producing a subtle fog effect on a near-black background. Each layer animates independently with different speed and direction to avoid visible repetition.
+
+The home hero contains a `<canvas id="glasslogo">` driven by Three.js. `glasslogo.js` builds a `MeshPhysicalMaterial` with `transmission: 1`, `ior: 1.45`, and a custom blue-white equirectangular environment map generated at runtime on a 2D canvas. The logo group (`"Meta"` on top, `"Forge"` below) is slanted via `rotation.z` and animated with a gentle float. When a run starts, the canvas transitions to a compact size at the top of the view.
+
+**Limitation:** The Three.js glass logo does not reproduce studio-quality HDRI reflections of a professional render; it approximates the look with a custom procedural environment map. It is intentional and lightweight.
+
+---
+
+## Acceptance Test Generation
 
 `StructureDesignerLLM` produces `acceptance_tests` at the root level of the project structure.
 
 ### Prompt rules
 
 1. Always include a help test:
+
    ```json
    {"args": ["--help"], "expected_stdout_contains": ["usage"], "expected_return_code": 0}
    ```
+
 2. For deterministic commands, use actual input data in `expected_stdout_contains`.
 3. For random/unpredictable output, set `expected_stdout_contains` to `[]`.
 4. Only generate a no-arguments error test if the CLI has required arguments.
@@ -326,6 +351,7 @@ File Organizer is only partially validated; file-system acceptance tests require
 - Runtime isolation currently applies only to the acceptance-test environment.
 - The v4.0 UI runs on a single local port (8765 by default) and does not yet support remote access or multiple concurrent runs.
 - `FileResponse` and `StaticFiles` are used from FastAPI without authentication; the server is intended for local use only.
+- The Three.js glass logo uses a procedural environment map, not a real HDRI. Reflections are approximated for performance and portability.
 
 ---
 
@@ -339,6 +365,76 @@ File Organizer is only partially validated; file-system acceptance tests require
 - ✅ **v3.3** – Generic acceptance testing, entrypoint-aware validation, shared runtime isolation
 - ✅ **v4.0** – Desktop UI with event stream, ProjectStore, live timeline, project history, and code viewer
 - ⬜ **v4.1** – Fixture-aware acceptance tests for file-system operations
-- ⬜ **v4.2** – Remote deployment, multi-project runtime, and extended UI capabilities
-- ⬜ **Future** – Signature-level contract enforcement, broader non-CLI project support, file-system test isolation improvements
+- ⬜ **v4.2** – Error handling UI, pause/resume, checkpointing
+- ⬜ **v5.0** – Remote deployment, multi-project runtime, and extended UI capabilities
+```
+
+---
+
+## ۳. `docs/README.md` — نسخه‌ی کامل
+
+```markdown
+# MetaForge Documentation Assets
+
+This folder holds all media used in the main README and the project documentation.
+
+## Structure
+
+```
+docs/
+├── screenshots/     Static PNG images
+└── demos/           MP4 videos
+```
+
+## Screenshots
+
+| File | Content | Used in README section |
+|------|---------|------------------------|
+| `01-home.png` | Home screen with two-layer fog background, Three.js glass logo, and idea input | Getting Started |
+| `02-timeline-running.png` | Live timeline with several events | Live Timeline |
+| `03-project-view.png` | Project detail with module list | Project View |
+| `04-code-viewer.png` | Module code with syntax highlighting | Code Viewer |
+| `05-drawer-history.png` | Drawer open with several projects | Project History |
+
+**Recommended size:** 1440px wide PNG, under 500KB each.
+
+## Demos
+
+| File | Content | Duration | Used in README section |
+|------|---------|----------|------------------------|
+| `demo-full.mp4` | Full run from Home to completion | 20-30s | Hero (top of README) |
+| `timeline-live.mp4` | Timeline growing in real time | 10-15s | Live Timeline |
+| `code-copy.mp4` | Click module + Copy button | 5-8s | Code Viewer |
+
+**Recommended size:** 1280×720 or 1920×1080 MP4, under 5MB each.
+
+## Recording Guidelines
+
+- Consistent window size across all screenshots
+- For Home / Timeline: capture the full browser window
+- For Project View / Code Viewer: capture only the content area
+- For Drawer: capture the browser window with drawer open
+- Use MP4 instead of GIF whenever possible (10x smaller, autoplay on GitHub)
+- If GIF is needed, keep under 3MB and 800px wide
+
+## Tools
+
+- **ShareX** — screenshots and screen recording
+- **TinyPNG** — PNG compression
+- **ScreenToGif** — GIF recording (optional)
+
+## Naming Rules
+
+- All lowercase
+- Hyphens for separators (no underscores, no spaces)
+- Numeric prefix for screenshots to control order
+- Descriptive but short names
+
+## UI Terminology
+
+- **Fog background** — Two-layer drifting fog rendered with CSS radial gradients (module: `galaxy.js`, name retained from an earlier design)
+- **Glass logo** — Three.js `MeshPhysicalMaterial` with procedural environment map (module: `glasslogo.js`)
+- **Timeline** — Vertical animated event feed shown during a run (module: `thinking.js`)
+- **Drawer** — Right-side panel for project history
+- **Modal** — Custom dark-theme dialog for rename and delete (module: `modal.js`)
 ```
