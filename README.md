@@ -4,11 +4,13 @@
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
 [![LLM](https://img.shields.io/badge/LLM-Powered-orange.svg)]()
 [![Multi-Agent](https://img.shields.io/badge/Architecture-Multi--Agent-green.svg)]()
-[![Version](https://img.shields.io/badge/Version-3.3-brightgreen.svg)]()
+
 
 MetaForge transforms a natural-language software idea into a runnable multi-module Python project using a coordinated team of LLM-powered agents.
 
-It is designed as an automated software-engineering pipeline that can design, generate, inspect, test, diagnose, repair, and validate generated projects before declaring them complete.
+**New in v4.0:** a desktop UI with live timeline, project history, and code viewer.
+
+![MetaForge demo](docs/demos/demo-full.mp4)
 
 ---
 
@@ -21,6 +23,36 @@ The system combines project design, contract-driven generation, structural inspe
 The core philosophy is:
 
 > **Generation is not enough. A generated project should be inspected, tested, repaired when necessary, and validated before completion.**
+
+---
+
+## The v4.0 UI
+
+MetaForge v4.0 adds a full desktop UI while keeping the CLI pipeline intact.
+
+### Live Timeline
+
+Watch every step in real time — from understanding the idea to running acceptance tests. Human-readable events replace technical jargon.
+
+![Timeline in action](docs/demos/timeline-live.mp4)
+
+### Project History
+
+Every project is saved locally with its full history. Reopen any project to inspect its modules, thinking log, and generated code.
+
+![Project history](docs/screenshots/05-drawer-history.png)
+
+### Code Viewer
+
+Browse every generated module with syntax highlighting and one-click copy.
+
+![Code viewer](docs/screenshots/04-code-viewer.png)
+
+### Home Screen
+
+A minimal entry point with an animated galaxy background that recedes when work begins.
+
+![Home screen](docs/screenshots/01-home.png)
 
 ---
 
@@ -51,93 +83,65 @@ MetaForge coordinates these stages through a message-passing architecture. The S
 
 ---
 
+## Version 4.0
+
+Version 4.0 introduces a complete UI layer on top of the existing MetaForge pipeline.
+
+Main improvements:
+
+- **FastAPI backend** with REST endpoints and WebSocket streaming
+- **Live timeline** of every run, streamed in real time
+- **Project history** with persistent storage per project
+- **Code viewer** with syntax highlighting and copy support
+- **Dark theme** with animated galaxy background
+- **Modular frontend** built with pure HTML, CSS, and vanilla JavaScript
+- **No framework required** — no bundler, no build step
+- **Works offline** — all dependencies vendored locally
+
+The CLI pipeline from v3.3 remains completely unchanged.
+
+---
+
 ## Key Features
 
-- **Multi-Agent Architecture**: Specialized Supervisor, Engineer, Coder, and Tester agents collaborate through a message-driven workflow.
-- **Contract-Driven Generation**: Public module APIs are defined before implementation.
-- **Contract-Aware Coding**: The Coder receives explicit project and module contracts when generating code.
-- **API Inspection**: Generated modules are checked against their declared public APIs.
-- **Semantic Analysis**: Cross-module compatibility is analyzed beyond basic structural validation.
-- **Multi-Module Repair**: Runtime failures can be analyzed in the context of multiple related modules.
-- **Self-Repair Loop**: Detected failures can trigger targeted repair attempts instead of immediately terminating the project.
-- **Runtime Acceptance Testing**: Generated CLI applications can be exercised through real command sequences.
-- **Isolated Testing**: Acceptance tests run in controlled environments to prevent previous test state from affecting later validation.
-- **LLM-Powered Generation**: Uses real LLM calls for project design, implementation, analysis, and repair.
-- **Intelligent Failure Handling**: The system can detect failures and stop safely when they cannot be resolved.
-- **Built-in Diagnostics**: Development and debugging tools provide visibility into project generation and validation.
-- **Knowledge Base**: Successful patterns and lessons from previous failures can be retained.
-- **Context Awareness**: Agents receive relevant project context to reduce inconsistent implementations across modules.
-- **End-to-End Automation**: The complete workflow can run from a natural-language idea to validated generated code.
-- **Modular Architecture**: Major components are separated by responsibility and can be tested or replaced independently.
+- **Multi-Agent Architecture** — Supervisor, Engineer, Coder, and Tester collaborate through a message-driven workflow.
+- **Contract-Driven Generation** — public module APIs are defined before implementation.
+- **API Inspection** — generated modules are checked against their declared public APIs.
+- **Semantic Analysis** — cross-module compatibility is analyzed beyond structural validation.
+- **Generic Acceptance Testing** — Tester runs project-level acceptance tests without hardcoded project assumptions.
+- **Multi-Module Repair** — runtime failures can be analyzed in the context of multiple related modules.
+- **Isolated Testing** — acceptance tests run in controlled environments with a shared temporary directory.
+- **Real-Time UI** — every event is streamed to the UI via WebSocket.
+- **Persistent History** — every project is stored with metadata, thinking log, and generated modules.
+- **End-to-End Automation** — the complete workflow runs from a natural-language idea to validated generated code.
 
----
-
-## Version 3.3
-
-Version 3.3 introduces a generic, project-agnostic acceptance testing engine.
-
-Key improvements:
-
-- **Generic Acceptance Testing**: Tester no longer contains hardcoded Todo-specific logic.
-- **Entrypoint-Aware Validation**: Entrypoint modules (e.g., `cli.py`) skip structural API export checks but still pass through Tester and acceptance tests.
-- **Shared Runtime Isolation**: All acceptance tests run in a single temporary directory, preserving state between commands while preventing leakage between runs.
-- **Acceptance Criteria Injection**: Coder and repair prompts now include acceptance test requirements as mandatory behavioral contracts.
-- **More Robust Acceptance Generation**: Tests for CLI help, required arguments, and successful commands are generated more deterministically; file-system/project-specific tests are avoided unless explicitly required.
-- **Validated Scenarios**: Todo App, Temperature Converter, Password Generator, Calculator, and File Organizer have been used...
----
-
-## Real-World Validation
-
-MetaForge v3.3 has been validated using multiple real command-line projects.
-
-Validated projects:
-
-- **Todo App** — `storage.py`, `todo_manager.py`, `cli.py`
-- **Temperature Converter** — `converter.py`, `cli.py`
-- **Password Generator** — `generator.py`, `cli.py`
-- **Calculator** — `calculator.py`, `cli.py`
-
-For each project, the complete MetaForge pipeline successfully:
-
-- generated the project structure
-- created module contracts
-- generated the source code
-- ran API and semantic validation
-- executed module-level tests
-- ran final acceptance tests
-- triggered repair only when needed
-
-```
-Final result for all validated projects:
-status=completed
-ACCEPTANCE TEST PASSED
-
-```
-This validation demonstrates that the generic acceptance-testing workflow works across different CLI project types.
-
-It does **not** imply that MetaForge guarantees successful generation for every arbitrary software project. However, we have seen clear improvements in the percentage of generated projects that pass validation compared to earlier versions.
 ---
 
 ## Example Runs
 
 | Project Idea | Result | Notes |
 |---|---|---|
-| Simple to do app | ✅ Completed | Generic acceptance testing validated |
-| Simple Temperature Converter CLI | ✅ Completed | Entrypoint and state isolation validated |
-| Simple password generator CLI | ✅ Completed | Random-output acceptance validated |
-| Simple calculator CLI | ✅ Completed | Multi-command arithmetic and CLI validation |
-| File organizer CLI | ✅ Completed | Generic CLI validation; file-specific tests deferred |
+| Simple to do app | ✅ Completed | Multi-module analysis, repair, and acceptance testing |
+| Simple Temperature Converter CLI | ✅ Completed | Deterministic CLI with acceptance tests |
+| Simple password generator CLI | ✅ Completed | Random-output CLI validated by return code |
+| File organizer CLI | ⚠️ Limited | File-system acceptance tests require fixture support (planned) |
 
-The Todo application became the primary real-world scenario used to validate the reliability improvements introduced in v3.3.
+The Todo application has been the primary validation scenario across versions.
 
 ---
 
 ## Installation & Usage
 
+### Requirements
+
+- Python 3.10+
+- A DeepSeek-compatible API key (or a compatible LLM provider)
+
+### Setup
+
 ```bash
 git clone https://github.com/PyAimind/MetaForge.git
 cd MetaForge
-
 pip install -r requirements.txt
 ```
 
@@ -151,35 +155,31 @@ LLM_ENGINEER_MODEL=deepseek/deepseek-chat-v3.1
 LLM_CODER_MODEL=deepseek/deepseek-chat-v3.1
 ```
 
-Run MetaForge:
+### Running the CLI
 
 ```bash
 python main.py
 ```
 
-Enter a natural-language software idea when prompted.
-
-For example:
+Enter a natural-language software idea when prompted:
 
 ```
-A simple CLI Todo app.
+A simple to do app
 ```
 
-MetaForge will then coordinate the project through its generation and validation pipeline.
+### Running the UI
 
----
+```bash
+python run_ui.py
+```
 
-## Testing
+Then open `http://127.0.0.1:8765` in a browser.
 
-MetaForge includes unit tests, diagnostic tests, and end-to-end scenarios.
-
-Examples:
-
-- `tests/test_tester_generic_acceptance.py`
-- `tests/test_supervisor_acceptance_integration.py`
-- `tests/test_structure_designer_acceptance.py`
-
-The final test demonstrates the complete LLM-powered generation and validation workflow.
+The UI provides:
+- Live timeline of every run
+- Project history with persistent storage
+- Code viewer for generated modules
+- Dark theme with animated background
 
 ---
 
@@ -187,88 +187,81 @@ The final test demonstrates the complete LLM-powered generation and validation w
 
 ```
 MetaForge/
-├── main.py
-├── agents/
-│   ├── supervisor.py
-│   ├── engineer.py
-│   ├── coder.py
-│   ├── tester.py
-│   ├── api_inspector.py
-│   └── semantic_analyzer.py
+├── main.py                  CLI entry point
+├── run_ui.py                UI server launcher
+├── config.py
+├── llm_provider.py
 │
-├── communication/
-│   ├── message.py
-│   └── message_channel.py
+├── agents/                  Core agents (Supervisor, Engineer, Coder, Tester, ...)
+├── communication/           Message and event infrastructure
+├── project_design/          Structure design, prompts, contracts, code execution
+├── workspace/               Runtime state during a run
+├── memory/                  Knowledge base
 │
-├── workspace/
-│   └── workspace_manager.py
+├── ui/                      v4.0 UI layer
+│   ├── server.py            FastAPI server
+│   ├── runner.py            Subprocess manager and event broadcaster
+│   ├── static/              Frontend (HTML, CSS, JS, vendored libraries)
+│   └── __init__.py
 │
-├── project_design/
-│   ├── structure_designer_llm.py
-│   ├── code_generator_llm.py
-│   ├── prompt_generator.py
-│   ├── contract_generator.py
-│   └── code_executor.py
+├── projects/                Persistent project storage (per-project folders)
+├── docs/                    Screenshots, demos, documentation
+│   ├── screenshots/
+│   └── demos/
 │
-├── memory/
-│   └── knowledge_base.py
+├── tests/                   Unit, integration, and diagnostic tests
+├── output/                  Generated modules of the last run
 │
-├── diagnostics/
-│   ├── common.py
-│   ├── diagnose.py
-│   └── checks/
-│
-├── tests/
-├── output/
 ├── requirements.txt
 ├── .env
-└── config.py
+└── README.md
 ```
 
 ---
 
 ## Current Limitations
 
-MetaForge v3.3 is validated primarily for **command-line Python projects**. It is still an LLM-driven generation system and cannot guarantee correct generation for every arbitrary project idea.
+MetaForge is still an LLM-driven software-generation system and cannot guarantee correct generation for arbitrary ideas.
 
-Known limitations include:
+Known limitations:
 
-- Non-CLI projects such as GUI, interactive, or web applications are not yet fully supported by the generic acceptance engine.
-- File-system/stateful operations that require pre-existing fixtures are only partially covered. File Organizer, for example, currently validates CLI help and required-argument handling, but file-rename-specific tests are deferred.
-- Acceptance tests are generic but not exhaustive. They focus on main success paths, help, and required-argument errors, and do not replace a complete project-specific test suite.
-- The underlying LLM may occasionally ignore strict generation constraints.
-- Semantic analysis depends on the quality and completeness of the generated project context.
-- Contract and API validation cannot replace behavioural testing.
-- The repair process is bounded by configured repair limits.
-- Generated architecture and code quality still depend partly on the selected LLM.
+- Acceptance tests for file-system operations require fixture support (planned).
+- Complex multi-module interactions may still fail under certain acceptance tests.
+- The underlying LLM is non-deterministic; identical ideas can produce different structures.
+- Semantic analysis depends on the quality of available context.
+- Repair loops are bounded by configured attempt limits.
+
 ---
 
 ## Roadmap
 
 - ✅ **v1.0** — Simulated agents with mock responses
 - ✅ **v2.0** — Full LLM-powered agents, fallback handling, and diagnostics
-- ✅ **v3.0-beta** — Context Manager, Debugger, Knowledge Base, Self-Repair Loop, and multi-module coordination
-- ✅ **v3.1** — Contract Generator, Contract-Aware Coder, API Inspector, and Supervisor validation gate
-- ✅ **v3.2** — Semantic Analysis, improved multi-module repair, diagnostic investigation, isolated acceptance testing, and real Todo end-to-end validation
-- ✅ **v3.3** — Generic acceptance testing, entrypoint-aware validation, shared runtime isolation, and multi-project validation
-- ⬜ **v4.0** — Web UI
+- ✅ **v3.0-beta** — Context Manager, Debugger, Knowledge Base, Self-Repair Loop
+- ✅ **v3.1** — Contract Generator, Contract-Aware Coder, API Inspector
+- ✅ **v3.2** — Semantic Analysis, multi-module repair, isolated acceptance testing
+- ✅ **v3.3** — Generic Acceptance Testing, entrypoint-aware validation
+- ✅ **v4.0** — Desktop UI with live timeline, project history, and code viewer
+- ⬜ **v4.1** — Fixture-aware acceptance tests
+- ⬜ **v5.0** — Web deployment and multi-project runtime
 
 ---
 
 ## Version History
 
-- **v3.3** — Generic Acceptance Testing, Entrypoint-Aware Validation, Shared Runtime Isolation, and Multi-Project E2E Validation
-- **v3.2** — Reliability improvements, Semantic Analyzer, improved multi-module repair, isolated acceptance testing, and real Todo end-to-end validation
-- **v3.1** — Contract Layer, `contracts.json`, Contract-Aware Coder, API Inspector, and Supervisor validation gate
-- **v3.0-beta** — Context Manager, Debugger, Knowledge Base, Self-Repair Loop, and multi-module coordination
-- **v2.0** — Full LLM-powered agents with real API integration, fallback detection, and diagnostic system
+- **v4.0** — Desktop UI with live timeline, project history, and code viewer
+- **v3.3** — Generic acceptance testing engine and entrypoint-aware validation
+- **v3.2** — Semantic Analysis, improved multi-module repair, isolated acceptance testing
+- **v3.1** — Contract Layer, `contracts.json`, Contract-Aware Coder, API Inspector
+- **v3.0-beta** — Context Manager, Debugger, Knowledge Base, Self-Repair Loop
+- **v2.0** — Full LLM-powered agents with real API integration and diagnostics
 - **v1.0** — Simulated agents with mock responses
 
 ---
 
 ## Technical Documentation
 
-For detailed architecture, internal workflows, repair-loop behavior, diagnostics, contracts, and implementation details, see:
+For detailed architecture, internal workflows, repair-loop behavior, and implementation details, see:
 
 [TECHNICAL.md](TECHNICAL.md)
 
@@ -277,4 +270,4 @@ For detailed architecture, internal workflows, repair-loop behavior, diagnostics
 ## License
 
 This project is licensed under the MIT License.
-
+```
