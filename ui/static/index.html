@@ -4,11 +4,19 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MetaForge</title>
-  <link rel="icon" href="/static/assets/favicon.svg" />
   <link rel="stylesheet" href="/static/css/theme.css" />
   <link rel="stylesheet" href="/static/css/layout.css" />
   <link rel="stylesheet" href="/static/css/components.css" />
   <link rel="stylesheet" href="/static/vendor/atom-one-dark.min.css" />
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "/static/vendor/three/three.module.js",
+      "three/addons/": "/static/vendor/three/"
+    }
+  }
+  </script>
 </head>
 <body>
   <div id="galaxy"></div>
@@ -32,7 +40,7 @@
 
   <main id="view-home" class="home" style="display: flex">
     <div class="home-hero">
-      <img class="logo" src="/static/assets/logo.svg" alt="MetaForge" />
+      <canvas id="glasslogo" class="glasslogo"></canvas>
       <h1 class="headline">What do you want to build?</h1>
       <form id="idea-form" class="idea-form">
         <input id="idea-input" type="text" placeholder="Describe your project..." autocomplete="off" />

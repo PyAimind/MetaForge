@@ -1,22 +1,21 @@
-function _galaxy() {
-  return document.getElementById("galaxy");
-}
+// Atmospheric fog background for the home screen.
 
-// Placeholder: will also initialize the Three.js scene in Task 2.1.
+const GALAXY_ID = "galaxy";
+let _galaxyEl = null;
+
 export function initGalaxy() {
-  const el = _galaxy();
-  if (!el) return;
-  el.style.opacity = "1";
+  _galaxyEl = document.getElementById(GALAXY_ID);
+  if (!_galaxyEl) return;
+  _galaxyEl.style.opacity = "1";
+  _galaxyEl.classList.add("fog-active");
 }
 
 export function hideGalaxy() {
-  const el = _galaxy();
-  if (!el) return;
-  el.style.opacity = "0";
+  if (!_galaxyEl) return;
+  _galaxyEl.style.opacity = "0";
 }
 
 export function showGalaxy() {
-  const el = _galaxy();
-  if (!el) return;
-  el.style.opacity = "1";
+  if (!_galaxyEl) return;
+  _galaxyEl.style.opacity = "1";
 }

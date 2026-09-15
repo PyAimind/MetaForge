@@ -9,6 +9,7 @@ import {
   disconnect as disconnectThinking,
   restoreIfActive,
 } from "./thinking.js";
+import { initGlassLogo } from "./glasslogo.js";
 
 let _pollTimer = null;
 let _currentProjectId = null;
@@ -182,17 +183,14 @@ function initDrawer() {
   }
 }
 
-
-
 async function main() {
   initGalaxy();
+  initGlassLogo();
   initProject();
   initThinking();
   initDrawer();
   initHome({ onIdeaSubmitted: handleIdea });
   loadProjects();
-
-
 
   const restored = await restoreIfActive();
   if (restored) {
