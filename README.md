@@ -10,7 +10,7 @@ MetaForge transforms a natural-language software idea into a runnable multi-modu
 
 **New in v4.0:** a desktop UI with a live timeline, project history, and a code viewer.
 
-![MetaForge demo](docs/demos/demo-full.mp4)
+![MetaForge demo](docs/demos/demo-full.gif)
 
 ---
 
@@ -34,7 +34,7 @@ MetaForge v4.0 adds a full desktop UI while keeping the CLI pipeline intact.
 
 Watch every step in real time — from understanding the idea to running acceptance tests. Human-readable events replace technical jargon.
 
-![Timeline in action](docs/demos/timeline-live.mp4)
+![Timeline in action](docs/demos/timeline-live.gif)
 
 ### Project History
 
