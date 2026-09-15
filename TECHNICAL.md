@@ -1,27 +1,41 @@
-# MetaForge v3.3 – Technical Architecture
+# MetaForge v4.0 – Technical Architecture
 
 ## Architecture Overview
 
-MetaForge v3.3 is a multi-agent pipeline that transforms a natural language project idea into a tested, runnable multi-module Python codebase. The system is built around specialised agents that communicate through a central message bus using per-agent message queues, with a shared workspace for state and logging. An LLM provider integration enables intelligent design and code generation.
+MetaForge v4.0 is a multi-agent pipeline that transforms a natural language project idea into a tested, runnable multi-module Python codebase, now with a full desktop UI on top. The system is built around specialised agents that communicate through a central message bus using per-agent message queues, with a shared workspace for state and logging. An LLM provider integration enables intelligent design and code generation.
 
-### New in v3.3
+Version 4.0 adds a **local UI layer** on top of the existing pipeline. The UI does not replace any CLI behaviour; it observes and controls the same pipeline through a FastAPI backend with WebSocket streaming.
+
+### New in v4.0
+
+- **Event Stream Foundation** – A structured `EventEmitter` writes JSON Lines events to stderr when `METAFORGE_STRUCTURED=1`. The CLI behaviour is unchanged when this mode is off.
+- **ProjectStore** – Persistent per-project storage under `projects/<uuid>/`, holding metadata, structure, contracts, thinking log, and generated output.
+- **FastAPI Backend + Runner** – A local HTTP + WebSocket server that spawns the CLI pipeline as a subprocess, captures structured events, saves them to the ProjectStore, and streams them live to the UI.
+- **Timeline Events** – User-facing, human-readable timeline entries emitted during runs (e.g. `"Writing storage.py"`, `"storage.py passed"`, `"Refining the solution"`).
+- **Live Timeline UI** – A vertical animated timeline that grows as the pipeline runs, with auto-scroll and category-based colors.
+- **Project History UI** – A drawer listing all past projects with rename, delete, and reopen support.
+- **Code Viewer UI** – A syntax-highlighted viewer for every generated module, with a copy button.
+- **Dark Theme UI** – Animated galaxy background on the home screen, glass-like logo, and a minimal entry point.
+
+The core v3.3 pipeline remains completely unchanged.
+
+### New in v3.3 (still active in v4.0)
 
 - **Generic Acceptance Testing Engine** – Tester is no longer hardcoded for Todo. It executes a project-agnostic `acceptance_tests` specification produced by the Engineer/StructureDesigner.
-- **Entrypoint-Aware Validation** – Modules with `type: "entrypoint"` (e.g., `cli.py`) skip API Inspector structural checks, while `library` modules continue to be validated strictly. All modules still pass through Tester and final acceptance.
-- **Shared Runtime Isolation** – All acceptance tests for a project run inside a single temporary directory, preserving state across sequential commands within the batch while preventing leakage between runs.
-- **Acceptance Criteria Injection** – Coder and repair prompts now include acceptance test requirements as mandatory behavioural contracts, improving alignment between generated code and expected behaviour.
-- **Robust Acceptance Test Generation** – StructureDesignerLLM now applies deterministic rules for generating acceptance tests: help tests, required-argument error tests, and simple success tests, while avoiding fragile filesystem-dependent or optional-feature tests.
-- **Multi-Project End-to-End Validation** – Validated with Todo App, Temperature Converter, Password Generator, Calculator, and partially with File Organizer.
+- **Entrypoint-Aware Validation** – Modules with `type: "entrypoint"` (e.g. `cli.py`) skip API Inspector structural checks, while `library` modules continue to be validated strictly.
+- **Shared Runtime Isolation** – All acceptance tests for a project run inside a single temporary directory, preserving state across sequential commands while preventing leakage between runs.
+- **Acceptance Criteria Injection** – Coder and repair prompts include acceptance test requirements as mandatory behavioural contracts.
+- **Robust Acceptance Test Generation** – StructureDesignerLLM applies deterministic rules for generating acceptance tests.
 
 ### Core Components
 
 - **Supervisor** – orchestrates the entire workflow, manages state transitions, and handles error recovery. It stores `acceptance_tests`, manages `acceptance_repair_pending`, and decides when to run final acceptance.
 - **Engineer** – designs the project structure and generates contract-aware coding prompts. During repair, it can generate a multi-module repair prompt containing all relevant module sources and contracts.
-- **Coder** – writes Python code using an LLM-powered generator. It reads `contracts.json`, injects contracts into prompts, and updates `generated` flags. In repair mode, it can parse multi-module JSON responses and write multiple corrected files.
-- **Tester** – executes generated code safely and returns structured results. Its acceptance test executor is now generic and runs in a shared temporary directory per project.
+- **Coder** – writes Python code using an LLM-powered generator. It reads `contracts.json`, injects contracts into prompts, and updates `generated` flags.
+- **Tester** – executes generated code safely and returns structured results. Its acceptance test executor is generic and runs in a shared temporary directory per project.
 - **Debugger** – analyses test failures and produces structured diagnoses.
-- **Contract Generator** – extracts public API contracts from the project structure and persists them as `contracts.json`, now also preserving `type` metadata.
-- **API Inspector** – validates a generated Python file against its declared contract using AST analysis. Skipped for entrypoint modules in v3.3.
+- **Contract Generator** – extracts public API contracts from the project structure and persists them as `contracts.json`, including `type` metadata.
+- **API Inspector** – validates a generated Python file against its declared contract using AST analysis. Skipped for entrypoint modules.
 - **Semantic Analyzer** – performs cross-module semantic checks using dependency contracts.
 - **MessageChannel** – thread-safe queue-based message bus.
 - **WorkspaceManager** – persistent short-term memory backed by JSON files.
@@ -29,11 +43,17 @@ MetaForge v3.3 is a multi-agent pipeline that transforms a natural language proj
 - **KnowledgeBase** – stores lessons, successful patterns, and failures.
 - **LLMProvider** – HTTP client for the DeepSeek API or compatible endpoint.
 
-The system follows the **Supervisor-Worker** pattern: the Supervisor issues sequential commands, each agent processes them and responds through the message bus. Critical state is managed in-memory by the Supervisor and persisted to the workspace.
+### v4.0 UI Components
+
+- **EventEmitter** (`communication/events.py`) – writes structured JSON Lines events to a stream (default: stderr). Schema version 1.
+- **ProjectStore** (`project_store.py`) – filesystem-backed store for project metadata, structure, contracts, thinking log, and output.
+- **RunManager** (`ui/runner.py`) – spawns `main.py` as a subprocess, reads structured events from stderr, appends them to the ProjectStore, and broadcasts them to WebSocket subscribers.
+- **FastAPI Server** (`ui/server.py`) – REST endpoints for projects, modules, and thinking logs, plus a WebSocket endpoint for live event streaming.
+- **Frontend** (`ui/static/`) – pure HTML, CSS, and vanilla JavaScript. Uses highlight.js for syntax highlighting. No framework, no bundler.
 
 ---
 
-## Agent Roles (v3.3 updates)
+## Agent Roles
 
 ### Supervisor (`agents/supervisor.py`)
 
@@ -48,189 +68,192 @@ The system follows the **Supervisor-Worker** pattern: the Supervisor issues sequ
   4. **waiting_for_tester** → processes test results: on success, sets `validated` and advances; on failure/timeout, invokes Debugger and retries.
   5. After all modules pass, if `acceptance_tests` exists, sends them to Tester and enters **waiting_for_acceptance_tests**; if `acceptance_tests` is empty, logs an error and fails.
   6. **waiting_for_acceptance_tests** → if passed, mark project completed; if failed, increment `fix_attempts["__acceptance__"]`, build a project-level repair context, set `acceptance_repair_pending=True`, and request a repair from Engineer.
-- During acceptance repair:
-  - Placeholder module is selected based on the `entrypoint` of the first acceptance test (e.g., `cli.py`), not `modules[0]`.
-  - After Coder success with `acceptance_repair_pending`, the same `acceptance_tests` are re-sent to Tester.
-  - If Coder returns error during acceptance repair, Supervisor retries until max attempts, then transitions to `error`.
 
 ### Engineer (`agents/engineer.py`)
 
 - Accepts `design_structure`, `generate_prompts`, `generate_single_prompt`.
-- During repair, if the repair context contains `all_modules`, the Engineer builds a **multi-module repair prompt** that includes every module’s source code and contract, and instructs the LLM to return a JSON object mapping module filenames to corrected code.
-- For single-module repairs, the previous behaviour remains unchanged.
+- During repair, if the repair context contains `all_modules`, the Engineer builds a multi-module repair prompt.
 
 ### Coder (`agents/coder.py`)
 
-- Before generation, loads the module’s contract from `contracts.json` and injects it into the generation prompt.
-- For entrypoint modules, reads `acceptance_tests` from the workspace structure and includes them in `module_info`.
-- In repair mode:
-  - Uses the Engineer-provided prompt when available.
-  - Includes acceptance tests and previous acceptance failure details in the repair prompt to guide the LLM.
-  - If `all_modules` is present, parses the LLM response as a JSON object, validates each returned module against the expected module set, and writes all valid corrections.
-- Updates `generated` flags after successful writes.
+- Loads the module’s contract from `contracts.json` and injects it into the generation prompt.
+- For entrypoint modules, includes acceptance tests in `module_info`.
+- In repair mode, uses the Engineer-provided prompt and parses multi-module JSON responses.
 
 ### Tester (`agents/tester.py`)
 
-- No longer contains any Todo-specific logic. The old `_run_acceptance_test` has been removed.
-- New method `_run_generic_acceptance_tests(acceptance_tests, output_dir)`:
-  - Creates **one shared temporary directory** for the entire batch.
-  - For each test, executes `entrypoint` with `args` and `working_directory=test_dir`.
-  - Compares `return_code` and checks `expected_stdout_contains`.
-  - Returns structured results including `passed`, `status`, `actual_stdout`, `stderr`, `return_code`, `error_reason`.
-- `process_command` checks for `acceptance_tests` payload first; if present, runs the generic engine and bypasses legacy CLI detection.
-- Per-module testing still works for library modules using the legacy path (which remains for now).
+- Contains no project-specific logic.
+- `_run_generic_acceptance_tests(acceptance_tests, output_dir)` creates **one shared temporary directory** for the entire batch and executes each test with `working_directory=test_dir`.
 
-### Debugger (`agents/debugger.py`)
+### Debugger, Contract Generator, API Inspector, Semantic Analyzer
 
-- Unchanged from previous versions.
-
-### Contract Generator (`project_design/contract_generator.py`)
-
-- Now reads the `type` field from each module in the project structure and stores it in `contracts.json`.
-- All other contract fields (`exports`, `dependencies`, `required_imports`) are preserved.
-
-### API Inspector (`agents/api_inspector.py`)
-
-- Unchanged from v3.2.
-- Still performs structural/API-level validation:
-  - Parses the Python file with `ast`.
-  - Collects top-level functions/classes.
-  - Checks that exports exist with correct kinds.
-  - Checks no unexpected public symbols.
-- In v3.3, Supervisor does not invoke it for modules where `contract["type"] == "entrypoint"`.
-
-### Semantic Analyzer (`agents/semantic_analyzer.py`)
-
-- Unchanged from v3.2.
-- Performs cross-module semantic validation using dependency contracts.
-- Runs after API Inspector (if applicable) and before Tester, only when the module has dependencies.
+- Unchanged from v3.3 except for ContractGenerator’s `type` preservation.
 
 ---
 
-## Self-Repair Loop (v3.3)
+## v4.0 UI Architecture
 
-There are now two distinct repair loops:
+### Event Stream System
 
-1. **Module-level repair** – triggered by API Inspector, Semantic Analyzer, or per-module Tester failures. Similar to v3.2.
-2. **Acceptance-level repair** – triggered when final acceptance tests fail.
+`communication/events.py` defines the `EventEmitter` class. Events are JSON Lines with schema version 1:
 
-### Module-level repair
-
-```text
-Coder
-  ↓
-API Inspector (if library) / Semantic Analyzer
-  ↓
-Tester (per module)
-  ↓
-Failure
-  ↓
-Debugger / diagnostic analysis
-  ↓
-Engineer (single or multi-module prompt)
-  ↓
-Coder (repair)
-  ↓
-Validation again
+```json
+{
+  "v": 1,
+  "ts": 1788945678.123,
+  "run_id": "uuid-v4",
+  "type": "run_started | timeline_entry | run_completed | run_failed | run_interrupted",
+  "payload": { ... }
+}
 ```
 
-### Acceptance-level repair
+Emission is opt-in via `METAFORGE_STRUCTURED=1`. When this flag is off, `EventEmitter.emit()` is a no-op and the CLI behaves exactly as before.
 
-```text
-All modules pass
-  ↓
-Final Acceptance Tests
-  ↓
-Failure
-  ↓
-Supervisor sets acceptance_repair_pending
-  ↓
-Engineer repair prompt (project-level)
-  ↓
-Coder repair
-  ↓
-Same acceptance_tests re-sent to Tester
-  ↓
-If still failing, repeat until max attempts
+**Event types currently emitted:**
+
+| Type | Source | Payload |
+|------|--------|---------|
+| `run_started` | `main.py` | `{idea}` |
+| `timeline_entry` | `DiagnosticMessageChannel.send` | `{title, detail, color, icon}` |
+| `run_completed` | `main.py` | `{total_runtime, iterations}` |
+| `run_failed` | `main.py` | `{reason, total_runtime}` |
+| `run_interrupted` | `main.py` | `{total_runtime}` |
+
+### ProjectStore
+
+Located at `project_store.py`. Each project occupies a folder under `projects/<uuid>/`:
+
+```
+projects/<uuid>/
+├── metadata.json        # id, name, idea, status, created_at, updated_at
+├── structure.json       # copy of project_structure.json
+├── contracts.json       # copy of contracts.json
+├── thinking.jsonl       # one JSON event per line
+└── output/              # final generated modules
 ```
 
-- On acceptance failure, `fix_attempts["__acceptance__"]` is incremented.
-- Placeholder module for repair is chosen from the entrypoint of the first acceptance test.
-- The same `self.acceptance_tests` are reused after repair; no new tests are generated.
-- If Coder returns error during acceptance repair, Supervisor retries; after 3 failed attempts, status becomes `error`.
+Public API:
+
+- `create(name, idea) -> project_id`
+- `list() -> [metadata]`
+- `get(project_id) -> metadata`
+- `rename(project_id, new_name) -> bool`
+- `delete(project_id) -> bool`
+- `update_status(project_id, status) -> bool`
+- `append_event(project_id, event) -> bool`
+- `copy_structure(project_id, path) -> bool`
+- `copy_contracts(project_id, path) -> bool`
+- `copy_output(project_id, output_dir) -> bool`
+
+All methods are non-raising; they return `True`/`False` or `None` on failure.
+
+### RunManager (`ui/runner.py`)
+
+Spawns `main.py` as a subprocess with:
+
+- `METAFORGE_STRUCTURED=1`
+- `METAFORGE_IDEA=<idea>`
+- `METAFORGE_PROJECT_ID=<uuid>`
+
+A background thread reads stderr line by line, parses each JSON event, appends it to the ProjectStore, and broadcasts it to all subscribers for that project. When the subprocess exits, the project status is updated based on the final event type (`run_completed` → `completed`, `run_failed` → `failed`, `run_interrupted` → `interrupted`).
+
+Only **one subprocess** is allowed at a time. A `threading.Lock` plus a `_starting` flag prevent concurrent spawns.
+
+### FastAPI Server (`ui/server.py`)
+
+REST endpoints:
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST | `/api/projects` | Start a new run |
+| GET | `/api/projects` | List all projects |
+| GET | `/api/projects/{id}` | Get project metadata |
+| PATCH | `/api/projects/{id}` | Rename a project |
+| DELETE | `/api/projects/{id}` | Delete a project (stops run first if active) |
+| GET | `/api/projects/{id}/thinking` | Full thinking log |
+| GET | `/api/projects/{id}/modules` | List generated modules |
+| GET | `/api/projects/{id}/modules/{filename}` | Module content |
+| WS | `/ws/run/{id}` | Live event stream |
+
+The WebSocket endpoint first sends all existing events from `thinking.jsonl`, then streams new events as they arrive. This allows a reconnecting client to reconstruct the full timeline.
+
+### Timeline Events (v4.0 addition)
+
+`DiagnosticMessageChannel.send` in `main.py` inspects each outgoing message and emits a `timeline_entry` event with user-facing wording. This keeps `main.py` unaware of internal state — all mapping happens at the channel boundary.
+
+Example mapping:
+
+| Internal message | Timeline entry |
+|------------------|----------------|
+| `supervisor → engineer` (`design_structure`) | `"Understanding your idea" / "Analyzing requirements..."` |
+| `supervisor → coder` (not fix) | `"Writing storage.py" / "Generating code..."` |
+| `coder → supervisor` (success) | `"storage.py written"` |
+| `supervisor → tester` | `"Testing storage.py"` |
+| `tester → supervisor` (passed) | `"storage.py passed"` |
+| `tester → supervisor` (failed) | `"storage.py failed"` |
+| `supervisor → engineer` (is_fix) | `"Refining the solution"` |
+
+Colors: `blue`, `purple`, `cyan`, `green`, `orange`, `red`. Icons: `spinner`, `check`, `cross`, `dot`.
+
+### Frontend (`ui/static/`)
+
+Pure HTML, CSS, and vanilla JavaScript modules loaded via `<script type="module">`. No framework, no bundler, no CDN.
+
+```
+ui/static/
+├── index.html
+├── css/
+│   ├── theme.css        # variables, reset, scrollbar
+│   ├── layout.css       # topbar, home, drawer, project view
+│   └── components.css   # buttons, idea form, timeline, code viewer
+├── js/
+│   ├── app.js           # entry point, state, view switching
+│   ├── api.js           # fetch wrappers
+│   ├── home.js          # idea form
+│   ├── galaxy.js        # animated background
+│   ├── project.js       # project view and module list
+│   ├── code_viewer.js   # syntax highlighting and copy
+│   └── thinking.js      # WebSocket client + timeline renderer
+├── assets/
+│   ├── logo.svg
+│   └── favicon.svg
+└── vendor/
+    ├── highlight.min.js
+    └── atom-one-dark.min.css
+```
+
+#### View States
+
+- **Home** – hero (logo, headline, idea form) plus optional timeline. When a run starts, the `running` class is added to `#view-home`.
+- **Project View** – module list sidebar + code panel. Opened by clicking a project in the drawer.
+- **Drawer** – right-side panel for project history.
+
+#### Thinking Panel
+
+The `thinking.js` module connects to `/ws/run/{id}`, renders each `timeline_entry` as a vertical timeline row, auto-scrolls to the newest event, and closes the socket once a terminal event (`run_completed`, `run_failed`, `run_interrupted`) arrives.
+
+The active project ID is stored in `localStorage` under `metaforge.active_project_id` so that reloading the page restores the timeline.
 
 ---
 
-## Repair Context (v3.3)
+## Acceptance Test Generation (v3.3, still active)
 
-The `RepairContext` class remains the central data container for repair information.
+`StructureDesignerLLM` produces `acceptance_tests` at the root level of the project structure.
 
-### v3.3 additions
-
-- `failure_type` – set to `"final_acceptance"` for acceptance-level failures.
-- `acceptance_tests` – the full list of acceptance tests.
-- `acceptance_failure_details` – structured results of failed acceptance tests (description, args, expected, actual, stderr, return code).
-
-### Existing fields
-
-- `module_name`
-- `filepath`
-- `current_code`
-- `contract`
-- `api_errors`
-- `semantic_errors`
-- `runtime_error`
-- `debugger_analysis`
-- `previous_attempts`
-- `all_modules` (when multi-module repair is needed)
-
----
-
-## Acceptance Test Generation
-
-`StructureDesignerLLM` now produces `acceptance_tests` at the root level of the project structure.
-
-### Prompt rules for acceptance tests
+### Prompt rules
 
 1. Always include a help test:
-
    ```json
-   {
-     "args": ["--help"],
-     "expected_stdout_contains": ["usage"],
-     "expected_return_code": 0
-   }
+   {"args": ["--help"], "expected_stdout_contains": ["usage"], "expected_return_code": 0}
    ```
+2. For deterministic commands, use actual input data in `expected_stdout_contains`.
+3. For random/unpredictable output, set `expected_stdout_contains` to `[]`.
+4. Only generate a no-arguments error test if the CLI has required arguments.
+5. Do not generate tests for optional flags or runtime errors unless explicitly requested.
+6. Avoid positional arguments unless the contract defines them.
+7. Keep total tests between 2 and 4.
 
-2. For successful deterministic commands, use actual input data in `expected_stdout_contains`.
-3. For random/unpredictable output, set `expected_stdout_contains` to `[]` and rely on `expected_return_code`.
-4. Only generate a no-arguments error test if the CLI has required arguments:
-
-   ```json
-   {
-     "args": [],
-     "expected_stdout_contains": [],
-     "expected_return_code": 2
-   }
-   ```
-
-   Do not generate this test if all arguments have defaults.
-5. Do not generate tests for optional flags (e.g., `--dry-run`) unless explicitly requested.
-6. Do not generate tests for runtime errors (e.g., invalid directory) unless explicitly requested.
-7. Avoid positional arguments unless the contract explicitly defines them.
-8. Keep total tests between 2 and 4.
-
-### Validation in code
-
-- `acceptance_tests` must be a list of valid dicts.
-- Invalid tests (missing entrypoint, invalid args, invalid timeout, etc.) are discarded.
-- If no valid tests remain, `acceptance_tests` becomes an empty list, and later Supervisor will fail with `"No acceptance tests available"`.
-
----
-
-## Tester Acceptance-Test Isolation
-
-In v3.3, the generic acceptance executor uses one shared temporary directory for the entire test batch.
+### Tester isolation
 
 ```python
 with tempfile.TemporaryDirectory() as test_dir:
@@ -243,74 +266,66 @@ with tempfile.TemporaryDirectory() as test_dir:
         )
 ```
 
-- All runtime-relative files (e.g., `todos.json`) are created inside `test_dir`.
-- Source files remain in `OUTPUT_DIR`.
-- The shared directory allows stateful tests (e.g., add followed by list) to work.
-- The directory is automatically cleaned after the batch.
-
-### CodeExecutor
-
-`CodeExecutor` was not modified for this change.  
-It already supported a `working_directory` parameter.
-
-**Responsibility split:**
-
-- **CodeExecutor** – executes a file with the supplied working directory.
-- **Tester** – defines the isolated runtime environment for acceptance testing.
+All runtime files (e.g. `todos.json`) are created inside `test_dir`. Source files remain in `OUTPUT_DIR`.
 
 ---
 
-## Contract Lifecycle (v3.3)
+## Self-Repair Loops
 
-1. Engineer/StructureDesigner designs structure with explicit exports, `type`, and `required_imports`.
-2. StructureDesigner also produces `acceptance_tests` at the root level.
-3. ContractGenerator creates `contracts.json` and now includes the `type` field.
+Two distinct repair loops exist:
+
+### Module-level repair
+
+Triggered by API Inspector, Semantic Analyzer, or per-module Tester failures. Uses single or multi-module repair prompts.
+
+### Acceptance-level repair
+
+Triggered when final acceptance tests fail. The Supervisor sets `acceptance_repair_pending=True`, builds a project-level repair context, and requests a repair from Engineer. The same `acceptance_tests` are re-used after repair.
+
+---
+
+## Contract Lifecycle
+
+1. Engineer designs structure with explicit exports, `type`, and `required_imports`.
+2. StructureDesigner produces `acceptance_tests`.
+3. ContractGenerator creates `contracts.json` including `type`.
 4. Coder loads contract, implements it, sets `generated: true`.
 5. API Inspector verifies structural compliance (skipped for entrypoint).
 6. Semantic Analyzer verifies cross-module usage.
 7. Tester runs the module.
 8. Supervisor sets `validated: true` on success.
-9. After all modules pass, final acceptance tests are executed; only if they pass is the project marked completed.
+9. Final acceptance tests run; only if they pass is the project marked completed.
 
-> **Note:** Signature-level enforcement (parameter types, return values) is **NOT** implemented in v3.3. It remains a limitation.
+> **Note:** Signature-level enforcement (parameter types, return values) is **not** implemented. It remains a limitation.
 
 ---
 
 ## End-to-End Validation
 
-MetaForge v3.3 has been validated with multiple real CLI projects using the real LLM-powered pipeline.
+MetaForge v4.0 has been validated with real CLI projects through the UI pipeline.
 
 **Validated projects:**
 
 - **Todo App** — `storage.py`, `todo_manager.py`, `cli.py`
 - **Temperature Converter** — `converter.py`, `cli.py`
 - **Password Generator** — `generator.py`, `cli.py`
-- **Calculator** — `calculator.py`, `cli.py`
 
-Each project was generated, analyzed, repaired when necessary, and passed final acceptance tests.
+**Notable observation:** Todo App passes or fails across runs due to LLM non-determinism in generated CLI code (missing state persistence in some commands). This is a known limitation of the current LLM-driven repair loop, not of the UI layer.
 
-**Final result for all validated projects:**
-
-```text
-status=completed
-ACCEPTANCE TEST PASSED
-```
-
-File Organizer was also partially validated: generic CLI help and required-argument tests pass, but file-rename-specific acceptance tests are deferred because they require fixture/state setup not yet supported by the generic test engine.
+File Organizer is only partially validated; file-system acceptance tests require fixture support that is deferred to v4.1.
 
 ---
 
-## Known Technical Limitations (v3.3)
+## Known Technical Limitations
 
-- Non-CLI projects (GUI, interactive, web) are not yet fully supported by the generic acceptance engine.
-- File-system/stateful operations that require pre-existing fixtures are only partially covered. File Organizer currently validates CLI help and required-argument handling, but file-rename-specific tests are deferred.
-- Acceptance tests are generic but not exhaustive; they focus on main success paths, help, and required-argument errors.
-- The underlying LLM may occasionally ignore strict generation constraints.
-- Semantic analysis depends on the quality and completeness of the generated project context.
-- Contract and API validation cannot replace behavioural testing.
-- The repair process is bounded by configured repair limits.
-- Generated architecture and code quality still depend partly on the selected LLM.
-- Runtime isolation currently applies only to the acceptance-test environment. Other execution paths may still share state if they do not use a temporary working directory.
+- Non-CLI projects (GUI, interactive, web) are not yet fully supported.
+- File-system acceptance tests requiring pre-existing fixtures are only partially covered.
+- Acceptance tests are generic but not exhaustive.
+- The underlying LLM is non-deterministic; identical ideas can produce different structures.
+- Repair loops are bounded by configured attempt limits.
+- Runtime isolation currently applies only to the acceptance-test environment.
+- The v4.0 UI runs on a single local port (8765 by default) and does not yet support remote access or multiple concurrent runs.
+- `FileResponse` and `StaticFiles` are used from FastAPI without authentication; the server is intended for local use only.
 
 ---
 
@@ -319,9 +334,11 @@ File Organizer was also partially validated: generic CLI help and required-argum
 - ✅ **v1.0** – Simulated agents with mock responses
 - ✅ **v2.0** – Full LLM-powered agents + Fallback + Diagnostics
 - ✅ **v3.0-beta** – Context Manager, Debugger, Knowledge Base, Self-Repair Loop
-- ✅ **v3.1** – Contract Generator, contract-aware Coder, API Inspector, Supervisor quality gate
-- ✅ **v3.2** – Semantic Analysis, improved multi-module repair, diagnostic repair-loop investigation, isolated acceptance testing, real Todo end-to-end validation
-- ✅ **v3.3** – Generic acceptance testing, entrypoint-aware validation, shared runtime isolation, acceptance criteria injection
-- ⬜ **v4.0** – Web UI
-- ⬜ **Future** – Signature-level contract enforcement (parameter & return type validation), fixture/setup support for acceptance tests, broader non-CLI project support, file-system test isolation improvements
-
+- ✅ **v3.1** – Contract Generator, contract-aware Coder, API Inspector
+- ✅ **v3.2** – Semantic Analysis, improved multi-module repair, isolated acceptance testing
+- ✅ **v3.3** – Generic acceptance testing, entrypoint-aware validation, shared runtime isolation
+- ✅ **v4.0** – Desktop UI with event stream, ProjectStore, live timeline, project history, and code viewer
+- ⬜ **v4.1** – Fixture-aware acceptance tests for file-system operations
+- ⬜ **v4.2** – Remote deployment, multi-project runtime, and extended UI capabilities
+- ⬜ **Future** – Signature-level contract enforcement, broader non-CLI project support, file-system test isolation improvements
+```
